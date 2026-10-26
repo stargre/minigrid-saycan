@@ -1,0 +1,6 @@
+﻿task_id,task,success,high_level_steps,low_level_actions,failed_skill_calls,invalid_skill_call_rate,planner_run_wall_time_s,skill_sequence,gif_path,error
+T1,"Pick up the red ball, open the yellow door, and place it above the green goal.",True,3,20,0,0.0,0.3494,open_door -> pick -> place,outputs/batch_eval/T1.gif,
+T2,"Open the yellow door first, then pick up the red ball, and finally place it above the green goal.",True,3,23,0,0.0,0.0615,open_door -> pick -> place,outputs/batch_eval/T2.gif,
+T3,"Take the red ball, open the door, and drop it above the goal.",True,3,22,0,0.0,0.0605,pick -> open_door -> place,outputs/batch_eval/T3.gif,
+T4,"Open the door, then place the red ball above the goal after picking it up.",True,3,32,0,0.0,0.1935,open_door -> pick -> place,outputs/batch_eval/T4.gif,
+T5,Grab the red ball and put it above the green goal; open the yellow door if needed.,True,3,34,0,0.0,0.0913,open_door -> pick -> place,outputs/batch_eval/T5.gif,

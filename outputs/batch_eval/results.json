@@ -1,0 +1,1053 @@
+{
+  "summary": {
+    "num_tasks": 5,
+    "successful_tasks": 5,
+    "failed_tasks": 0,
+    "task_success_rate": 1.0,
+    "avg_high_level_steps": 3.0,
+    "avg_low_level_actions": 26.2,
+    "total_skill_calls": 15,
+    "failed_skill_calls": 0,
+    "invalid_skill_call_rate": 0.0,
+    "avg_planner_run_wall_time_s": 0.15123999999999999
+  },
+  "tasks": [
+    {
+      "task_id": "T1",
+      "task": "Pick up the red ball, open the yellow door, and place it above the green goal.",
+      "success": true,
+      "high_level_steps": 3,
+      "low_level_actions": 20,
+      "failed_skill_calls": 0,
+      "invalid_skill_call_rate": 0.0,
+      "planner_run_wall_time_s": 0.3494,
+      "skill_sequence": "open_door -> pick -> place",
+      "gif_path": "outputs/batch_eval/T1.gif",
+      "error": "",
+      "planning_history": [
+        {
+          "round": 1,
+          "skill": "open_door",
+          "relevance": 0.6666666666666667,
+          "feasibility": 1.0,
+          "score": 0.6666666666666667,
+          "state_before": {
+            "position": [
+              2,
+              2
+            ],
+            "carrying": false
+          },
+          "result": {
+            "success": true,
+            "reason": "Door opened successfully.",
+            "start": [
+              2,
+              2
+            ],
+            "door_pos": [
+              6,
+              2
+            ],
+            "approach_pos": [
+              5,
+              2
+            ],
+            "path": [
+              [
+                2,
+                2
+              ],
+              [
+                3,
+                2
+              ],
+              [
+                4,
+                2
+              ],
+              [
+                5,
+                2
+              ]
+            ],
+            "actions_executed": 4,
+            "door_open": true
+          }
+        },
+        {
+          "round": 2,
+          "skill": "pick",
+          "relevance": 1.0,
+          "feasibility": 1.0,
+          "score": 1.0,
+          "state_before": {
+            "position": [
+              5,
+              2
+            ],
+            "carrying": false
+          },
+          "result": {
+            "success": true,
+            "reason": "Picked up object.",
+            "start": [
+              5,
+              2
+            ],
+            "object_pos": [
+              10,
+              2
+            ],
+            "approach_pos": [
+              9,
+              2
+            ],
+            "path": [
+              [
+                5,
+                2
+              ],
+              [
+                6,
+                2
+              ],
+              [
+                7,
+                2
+              ],
+              [
+                8,
+                2
+              ],
+              [
+                9,
+                2
+              ]
+            ],
+            "actions_executed": 5
+          }
+        },
+        {
+          "round": 3,
+          "skill": "place",
+          "relevance": 0.33333333333333337,
+          "feasibility": 1.0,
+          "score": 0.33333333333333337,
+          "state_before": {
+            "position": [
+              9,
+              2
+            ],
+            "carrying": true
+          },
+          "result": {
+            "success": true,
+            "reason": "Object placed successfully.",
+            "start": [
+              9,
+              2
+            ],
+            "target_pos": [
+              11,
+              10
+            ],
+            "approach_pos": [
+              11,
+              9
+            ],
+            "path": [
+              [
+                9,
+                2
+              ],
+              [
+                10,
+                2
+              ],
+              [
+                11,
+                2
+              ],
+              [
+                11,
+                3
+              ],
+              [
+                11,
+                4
+              ],
+              [
+                11,
+                5
+              ],
+              [
+                11,
+                6
+              ],
+              [
+                11,
+                7
+              ],
+              [
+                11,
+                8
+              ],
+              [
+                11,
+                9
+              ]
+            ],
+            "actions_executed": 11,
+            "holding_object": false,
+            "object_at_target": true
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "T2",
+      "task": "Open the yellow door first, then pick up the red ball, and finally place it above the green goal.",
+      "success": true,
+      "high_level_steps": 3,
+      "low_level_actions": 23,
+      "failed_skill_calls": 0,
+      "invalid_skill_call_rate": 0.0,
+      "planner_run_wall_time_s": 0.0615,
+      "skill_sequence": "open_door -> pick -> place",
+      "gif_path": "outputs/batch_eval/T2.gif",
+      "error": "",
+      "planning_history": [
+        {
+          "round": 1,
+          "skill": "open_door",
+          "relevance": 1.0,
+          "feasibility": 1.0,
+          "score": 1.0,
+          "state_before": {
+            "position": [
+              2,
+              2
+            ],
+            "carrying": false
+          },
+          "result": {
+            "success": true,
+            "reason": "Door opened successfully.",
+            "start": [
+              2,
+              2
+            ],
+            "door_pos": [
+              6,
+              6
+            ],
+            "approach_pos": [
+              5,
+              6
+            ],
+            "path": [
+              [
+                2,
+                2
+              ],
+              [
+                3,
+                2
+              ],
+              [
+                4,
+                2
+              ],
+              [
+                5,
+                2
+              ],
+              [
+                5,
+                3
+              ],
+              [
+                5,
+                4
+              ],
+              [
+                5,
+                5
+              ],
+              [
+                5,
+                6
+              ]
+            ],
+            "actions_executed": 10,
+            "door_open": true
+          }
+        },
+        {
+          "round": 2,
+          "skill": "pick",
+          "relevance": 0.6666666666666667,
+          "feasibility": 1.0,
+          "score": 0.6666666666666667,
+          "state_before": {
+            "position": [
+              5,
+              6
+            ],
+            "carrying": false
+          },
+          "result": {
+            "success": true,
+            "reason": "Picked up object.",
+            "start": [
+              5,
+              6
+            ],
+            "object_pos": [
+              8,
+              11
+            ],
+            "approach_pos": [
+              8,
+              10
+            ],
+            "path": [
+              [
+                5,
+                6
+              ],
+              [
+                6,
+                6
+              ],
+              [
+                7,
+                6
+              ],
+              [
+                8,
+                6
+              ],
+              [
+                8,
+                7
+              ],
+              [
+                8,
+                8
+              ],
+              [
+                8,
+                9
+              ],
+              [
+                8,
+                10
+              ]
+            ],
+            "actions_executed": 9
+          }
+        },
+        {
+          "round": 3,
+          "skill": "place",
+          "relevance": 0.33333333333333337,
+          "feasibility": 1.0,
+          "score": 0.33333333333333337,
+          "state_before": {
+            "position": [
+              8,
+              10
+            ],
+            "carrying": true
+          },
+          "result": {
+            "success": true,
+            "reason": "Object placed successfully.",
+            "start": [
+              8,
+              10
+            ],
+            "target_pos": [
+              11,
+              10
+            ],
+            "approach_pos": [
+              10,
+              10
+            ],
+            "path": [
+              [
+                8,
+                10
+              ],
+              [
+                9,
+                10
+              ],
+              [
+                10,
+                10
+              ]
+            ],
+            "actions_executed": 4,
+            "holding_object": false,
+            "object_at_target": true
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "T3",
+      "task": "Take the red ball, open the door, and drop it above the goal.",
+      "success": true,
+      "high_level_steps": 3,
+      "low_level_actions": 22,
+      "failed_skill_calls": 0,
+      "invalid_skill_call_rate": 0.0,
+      "planner_run_wall_time_s": 0.0605,
+      "skill_sequence": "pick -> open_door -> place",
+      "gif_path": "outputs/batch_eval/T3.gif",
+      "error": "",
+      "planning_history": [
+        {
+          "round": 1,
+          "skill": "pick",
+          "relevance": 1.0,
+          "feasibility": 1.0,
+          "score": 1.0,
+          "state_before": {
+            "position": [
+              2,
+              2
+            ],
+            "carrying": false
+          },
+          "result": {
+            "success": true,
+            "reason": "Picked up object.",
+            "start": [
+              2,
+              2
+            ],
+            "object_pos": [
+              5,
+              2
+            ],
+            "approach_pos": [
+              4,
+              2
+            ],
+            "path": [
+              [
+                2,
+                2
+              ],
+              [
+                3,
+                2
+              ],
+              [
+                4,
+                2
+              ]
+            ],
+            "actions_executed": 3
+          }
+        },
+        {
+          "round": 2,
+          "skill": "open_door",
+          "relevance": 0.6666666666666667,
+          "feasibility": 1.0,
+          "score": 0.6666666666666667,
+          "state_before": {
+            "position": [
+              4,
+              2
+            ],
+            "carrying": true
+          },
+          "result": {
+            "success": true,
+            "reason": "Door opened successfully.",
+            "start": [
+              4,
+              2
+            ],
+            "door_pos": [
+              6,
+              8
+            ],
+            "approach_pos": [
+              5,
+              8
+            ],
+            "path": [
+              [
+                4,
+                2
+              ],
+              [
+                5,
+                2
+              ],
+              [
+                5,
+                3
+              ],
+              [
+                5,
+                4
+              ],
+              [
+                5,
+                5
+              ],
+              [
+                5,
+                6
+              ],
+              [
+                5,
+                7
+              ],
+              [
+                5,
+                8
+              ]
+            ],
+            "actions_executed": 10,
+            "door_open": true
+          }
+        },
+        {
+          "round": 3,
+          "skill": "place",
+          "relevance": 0.33333333333333337,
+          "feasibility": 1.0,
+          "score": 0.33333333333333337,
+          "state_before": {
+            "position": [
+              5,
+              8
+            ],
+            "carrying": true
+          },
+          "result": {
+            "success": true,
+            "reason": "Object placed successfully.",
+            "start": [
+              5,
+              8
+            ],
+            "target_pos": [
+              11,
+              10
+            ],
+            "approach_pos": [
+              11,
+              9
+            ],
+            "path": [
+              [
+                5,
+                8
+              ],
+              [
+                6,
+                8
+              ],
+              [
+                7,
+                8
+              ],
+              [
+                8,
+                8
+              ],
+              [
+                9,
+                8
+              ],
+              [
+                10,
+                8
+              ],
+              [
+                11,
+                8
+              ],
+              [
+                11,
+                9
+              ]
+            ],
+            "actions_executed": 9,
+            "holding_object": false,
+            "object_at_target": true
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "T4",
+      "task": "Open the door, then place the red ball above the goal after picking it up.",
+      "success": true,
+      "high_level_steps": 3,
+      "low_level_actions": 32,
+      "failed_skill_calls": 0,
+      "invalid_skill_call_rate": 0.0,
+      "planner_run_wall_time_s": 0.1935,
+      "skill_sequence": "open_door -> pick -> place",
+      "gif_path": "outputs/batch_eval/T4.gif",
+      "error": "",
+      "planning_history": [
+        {
+          "round": 1,
+          "skill": "open_door",
+          "relevance": 1.0,
+          "feasibility": 1.0,
+          "score": 1.0,
+          "state_before": {
+            "position": [
+              2,
+              2
+            ],
+            "carrying": false
+          },
+          "result": {
+            "success": true,
+            "reason": "Door opened successfully.",
+            "start": [
+              2,
+              2
+            ],
+            "door_pos": [
+              6,
+              10
+            ],
+            "approach_pos": [
+              5,
+              10
+            ],
+            "path": [
+              [
+                2,
+                2
+              ],
+              [
+                3,
+                2
+              ],
+              [
+                4,
+                2
+              ],
+              [
+                5,
+                2
+              ],
+              [
+                5,
+                3
+              ],
+              [
+                5,
+                4
+              ],
+              [
+                5,
+                5
+              ],
+              [
+                5,
+                6
+              ],
+              [
+                5,
+                7
+              ],
+              [
+                5,
+                8
+              ],
+              [
+                5,
+                9
+              ],
+              [
+                5,
+                10
+              ]
+            ],
+            "actions_executed": 14,
+            "door_open": true
+          }
+        },
+        {
+          "round": 2,
+          "skill": "pick",
+          "relevance": 0.33333333333333337,
+          "feasibility": 1.0,
+          "score": 0.33333333333333337,
+          "state_before": {
+            "position": [
+              5,
+              10
+            ],
+            "carrying": false
+          },
+          "result": {
+            "success": true,
+            "reason": "Picked up object.",
+            "start": [
+              5,
+              10
+            ],
+            "object_pos": [
+              10,
+              6
+            ],
+            "approach_pos": [
+              9,
+              6
+            ],
+            "path": [
+              [
+                5,
+                10
+              ],
+              [
+                6,
+                10
+              ],
+              [
+                7,
+                10
+              ],
+              [
+                8,
+                10
+              ],
+              [
+                9,
+                10
+              ],
+              [
+                9,
+                9
+              ],
+              [
+                9,
+                8
+              ],
+              [
+                9,
+                7
+              ],
+              [
+                9,
+                6
+              ]
+            ],
+            "actions_executed": 11
+          }
+        },
+        {
+          "round": 3,
+          "skill": "place",
+          "relevance": 0.6666666666666667,
+          "feasibility": 1.0,
+          "score": 0.6666666666666667,
+          "state_before": {
+            "position": [
+              9,
+              6
+            ],
+            "carrying": true
+          },
+          "result": {
+            "success": true,
+            "reason": "Object placed successfully.",
+            "start": [
+              9,
+              6
+            ],
+            "target_pos": [
+              11,
+              10
+            ],
+            "approach_pos": [
+              11,
+              9
+            ],
+            "path": [
+              [
+                9,
+                6
+              ],
+              [
+                10,
+                6
+              ],
+              [
+                11,
+                6
+              ],
+              [
+                11,
+                7
+              ],
+              [
+                11,
+                8
+              ],
+              [
+                11,
+                9
+              ]
+            ],
+            "actions_executed": 7,
+            "holding_object": false,
+            "object_at_target": true
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "T5",
+      "task": "Grab the red ball and put it above the green goal; open the yellow door if needed.",
+      "success": true,
+      "high_level_steps": 3,
+      "low_level_actions": 34,
+      "failed_skill_calls": 0,
+      "invalid_skill_call_rate": 0.0,
+      "planner_run_wall_time_s": 0.0913,
+      "skill_sequence": "open_door -> pick -> place",
+      "gif_path": "outputs/batch_eval/T5.gif",
+      "error": "",
+      "planning_history": [
+        {
+          "round": 1,
+          "skill": "open_door",
+          "relevance": 0.33333333333333337,
+          "feasibility": 1.0,
+          "score": 0.33333333333333337,
+          "state_before": {
+            "position": [
+              2,
+              2
+            ],
+            "carrying": false
+          },
+          "result": {
+            "success": true,
+            "reason": "Door opened successfully.",
+            "start": [
+              2,
+              2
+            ],
+            "door_pos": [
+              6,
+              6
+            ],
+            "approach_pos": [
+              5,
+              6
+            ],
+            "path": [
+              [
+                2,
+                2
+              ],
+              [
+                3,
+                2
+              ],
+              [
+                4,
+                2
+              ],
+              [
+                5,
+                2
+              ],
+              [
+                5,
+                3
+              ],
+              [
+                5,
+                4
+              ],
+              [
+                5,
+                5
+              ],
+              [
+                5,
+                6
+              ]
+            ],
+            "actions_executed": 10,
+            "door_open": true
+          }
+        },
+        {
+          "round": 2,
+          "skill": "pick",
+          "relevance": 1.0,
+          "feasibility": 1.0,
+          "score": 1.0,
+          "state_before": {
+            "position": [
+              5,
+              6
+            ],
+            "carrying": false
+          },
+          "result": {
+            "success": true,
+            "reason": "Picked up object.",
+            "start": [
+              5,
+              6
+            ],
+            "object_pos": [
+              8,
+              1
+            ],
+            "approach_pos": [
+              7,
+              1
+            ],
+            "path": [
+              [
+                5,
+                6
+              ],
+              [
+                6,
+                6
+              ],
+              [
+                7,
+                6
+              ],
+              [
+                7,
+                5
+              ],
+              [
+                7,
+                4
+              ],
+              [
+                7,
+                3
+              ],
+              [
+                7,
+                2
+              ],
+              [
+                7,
+                1
+              ]
+            ],
+            "actions_executed": 10
+          }
+        },
+        {
+          "round": 3,
+          "skill": "place",
+          "relevance": 0.6666666666666667,
+          "feasibility": 1.0,
+          "score": 0.6666666666666667,
+          "state_before": {
+            "position": [
+              7,
+              1
+            ],
+            "carrying": true
+          },
+          "result": {
+            "success": true,
+            "reason": "Object placed successfully.",
+            "start": [
+              7,
+              1
+            ],
+            "target_pos": [
+              11,
+              10
+            ],
+            "approach_pos": [
+              11,
+              9
+            ],
+            "path": [
+              [
+                7,
+                1
+              ],
+              [
+                8,
+                1
+              ],
+              [
+                9,
+                1
+              ],
+              [
+                10,
+                1
+              ],
+              [
+                11,
+                1
+              ],
+              [
+                11,
+                2
+              ],
+              [
+                11,
+                3
+              ],
+              [
+                11,
+                4
+              ],
+              [
+                11,
+                5
+              ],
+              [
+                11,
+                6
+              ],
+              [
+                11,
+                7
+              ],
+              [
+                11,
+                8
+              ],
+              [
+                11,
+                9
+              ]
+            ],
+            "actions_executed": 14,
+            "holding_object": false,
+            "object_at_target": true
+          }
+        }
+      ]
+    }
+  ]
+}
