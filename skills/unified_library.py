@@ -111,14 +111,9 @@ class NavigateToSkill(UnifiedSkill):
         pos, cell = self._nearest(target)
         if pos is None:
             return self._result(False, "target_not_found", "Find the target before navigating.")
-        if _dist(pos, self.belief.agent_pos) == 1:
-            desired = DIRECTIONS.index((pos[0] - self.belief.agent_pos[0], pos[1] - self.belief.agent_pos[1]))
-            if self.belief.agent_dir != desired:
-                result = self.navigator.step_to_adjacent(pos)
-                result["skill"] = self.name
-                return result
-            return self._result(True, "skill_complete", "The agent is adjacent to and facing the target.", target_position=list(pos))
         result = self.navigator.step_to_adjacent(pos)
+        if result.get("status") == "target_adjacent":
+            return self._result(True, "skill_complete", "The agent is adjacent to and facing the target.", target_position=list(pos))
         result["skill"] = self.name
         return result
 
@@ -277,6 +272,9 @@ class MoveObstacleSkill(UnifiedSkill):
             result = self.pickup.step(target)
             if result.get("success"):
                 self._phase = "place"
+                result["success"] = False
+                result["status"] = "phase_complete"
+                result["reason"] = "Obstacle pickup is complete; the next invocation will place it."
             result["skill"] = self.name
             result["phase"] = "pickup"
             return result
@@ -297,8 +295,8 @@ class DoneSkill(UnifiedSkill):
             pos, _ = self._nearest(target)
             if pos is None:
                 return self._result(False, "target_not_found", "Find the target before completing the task.")
-            if _dist(pos, self.belief.agent_pos) != 1:
-                result = self.navigator.step_to_adjacent(pos)
+            result = self.navigator.step_to_adjacent(pos)
+            if result.get("status") != "target_adjacent":
                 result["skill"] = self.name
                 return result
         result = self.runtime.execute_action(Actions.done)
