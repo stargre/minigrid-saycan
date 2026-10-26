@@ -1,0 +1,70 @@
+# ========================
+# Python 通用忽略规则
+# ========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# 虚拟环境
+venv/
+env/
+.venv/
+conda-env/
+
+# IDE 配置
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ========================
+# 机器学习 / SayCan 专用
+# ========================
+# 模型权重（严禁上传大文件）
+*.pth
+*.pt
+*.bin
+*.ckpt
+*.h5
+*.onnx
+checkpoints/
+pretrained_models/
+saved_models/
+
+# 数据集与输出
+data/
+dataset/
+datasets/
+outputs/
+results/
+eval_results/
+
+# 实验追踪与日志
+wandb/
+mlruns/
+tensorboard_logs/
+logs/
+*.log
+nohup.out
+
+# 环境变量与密钥（安全相关）
+.env
+.env.*
+secrets.json
+credentials/
+
+# Jupyter Notebook 检查点
+.ipynb_checkpoints/
+
+# ========================
+# 系统文件
+# ========================
+.DS_Store
+Thumbs.db
