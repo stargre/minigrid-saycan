@@ -96,7 +96,7 @@ class UnifiedSayCanPlanner:
     def _task_success(self, task):
         text = str(task).lower()
         done = set(self.runtime.belief.completed_subgoals)
-        if any(w in text for w in ("place", "put", "drop", "set down")):
+        if any(w in text for w in ("place", "put", "drop", "set down", "move", "push", "clear", "obstacle")):
             if self.runtime.belief.inventory_status != "empty" or not ({"place", "drop"} & done):
                 return False
         if "unlock" in text and not ({"unlock_door", "open_door"} & done):
