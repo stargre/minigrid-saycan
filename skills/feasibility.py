@@ -115,31 +115,11 @@ class SkillFeasibilityEvaluator:
                         reason = "A known empty placement cell is reachable." if score else "No known reachable empty placement cell."
         elif name == "MoveObstacle":
             obstacle, destination = args.get("target"), args.get("destination")
-            dests = self._positions(destination) if destination is not None else []
-            if self._held_matches(obstacle):
-                if not dests:
-                    reason = "Find the destination first."
-                else:
-                    dest_pos = dests[0][0]
-                    relation = str(args.get("relation", "near")).lower()
-                    offset = relation_offset(relation)
-                    if offset is not None:
-                        place_pos = (dest_pos[0] + offset[0], dest_pos[1] + offset[1])
-                        cell = self.belief.cell_at(place_pos)
-                        score = float(cell is not None and cell.get("object") in {"empty", "floor"} and self._reachable_adjacent(place_pos))
-                    else:
-                        score = float(any(
-                            self.belief.cell_at((dest_pos[0]+dx, dest_pos[1]+dy)) is not None
-                            and self.belief.cell_at((dest_pos[0]+dx, dest_pos[1]+dy)).get("object") in {"empty", "floor"}
-                            and self._reachable_adjacent((dest_pos[0]+dx, dest_pos[1]+dy))
-                            for dx, dy in DIRECTIONS
-                        ))
-                    reason = "The obstacle is held and a placement cell is reachable." if score else "No known reachable placement cell."
-            elif not positions:
+            if not positions:
                 reason = "Find the obstacle first."
-            elif not dests:
+            elif destination is None or not self._positions(destination):
                 reason = "Find the destination first."
-            elif self.belief.inventory_status != "empty":
+            elif self.belief.inventory_status != "empty" and not self._held_matches(obstacle):
                 reason = "The gripper must be empty before moving an obstacle."
             else:
                 score = float(self._reachable_adjacent(positions[0][0]))

@@ -1,256 +1,84 @@
+"""Multi-task batch evaluation using the unified skill interface."""
 import csv
 import json
 import time
 from pathlib import Path
 
-import numpy as np
-
 from environments.saycan_grid import SayCanGridEnv
-from skills.movement import MovementSkill
-from skills.manipulation import PickSkill, PlaceSkill
-from skills.interaction import OpenDoorSkill
-from planners.saycan_planner import SayCanPlanner
-from utils.visualization import FrameRecorder
-
+from skills.observation_runtime import ObservationRuntime
+from planners.unified_saycan_planner import UnifiedSayCanPlanner
+from llm.skill_relevance import KeywordRelevanceScorer, QwenSkillRelevanceScorer
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT / "outputs" / "batch_eval"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-
 TASKS = [
-    {
-        "id": "T1",
-        "task": (
-            "Pick up the red ball, open the yellow door, "
-            "and place it above the green goal."
-        ),
-    },
-    {
-        "id": "T2",
-        "task": (
-            "Open the yellow door first, then pick up the "
-            "red ball, and finally place it above the green goal."
-        ),
-    },
-    {
-        "id": "T3",
-        "task": (
-            "Take the red ball, open the door, "
-            "and drop it above the goal."
-        ),
-    },
-    {
-        "id": "T4",
-        "task": (
-            "Open the door, then place the red ball above "
-            "the goal after picking it up."
-        ),
-    },
-    {
-        "id": "T5",
-        "task": (
-            "Grab the red ball and put it above the green goal; "
-            "open the yellow door if needed."
-        ),
-    },
+    ("T1", "Pick up the red ball, open the yellow door, and place it above the green goal."),
+    ("T2", "Open the yellow door first, then pick up the red ball, and finally place it above the green goal."),
+    ("T3", "Take the red ball, open the yellow door, and drop it above the green goal."),
+    ("T4", "Open the yellow door, then place the red ball above the green goal after picking it up."),
+    ("T5", "Grab the red ball and put it above the green goal; open the yellow door if needed."),
 ]
 
 
-def json_default(obj):
-    """处理 NumPy 数值等 JSON 不直接支持的类型。"""
-    if isinstance(obj, np.integer):
-        return int(obj)
-    if isinstance(obj, np.floating):
-        return float(obj)
-    if isinstance(obj, np.ndarray):
-        return obj.tolist()
-    return str(obj)
-
-
-def run_one_task(task_id, task_text, seed):
-    """运行单个任务，返回指标、详细日志和 GIF 路径。"""
-
-    env = SayCanGridEnv(render_mode="rgb_array")
-    env.reset(seed=seed)
-
-    recorder = FrameRecorder(env)
-    movement = MovementSkill(recorder)
-    picker = PickSkill(recorder, movement)
-    opener = OpenDoorSkill(recorder, movement)
-    placer = PlaceSkill(recorder, movement)
-
-    planner = SayCanPlanner(
-        recorder,
-        movement,
-        picker,
-        opener,
-        placer,
-    )
-
-    start_time = time.perf_counter()
-
+def run_one(task_id, task, seed, scorer):
+    env = SayCanGridEnv(render_mode=None)
+    obs, _ = env.reset(seed=seed)
+    runtime = ObservationRuntime(env)
+    runtime.reset(obs, initial_inventory="empty")
+    planner = UnifiedSayCanPlanner(runtime, relevance_scorer=scorer, max_actions=450)
+    started = time.perf_counter()
     try:
-        success, history = planner.run(
-            task_text,
-            max_high_level_steps=10,
-        )
-    except Exception as exc:
-        success = False
-        history = []
-        error = repr(exc)
-    else:
+        result = planner.run(task, max_high_level_steps=500)
         error = ""
-
-    # 包含规划、动作执行、渲染记录和终端输出时间。
-    # 不包含后续 GIF 文件编码时间。
-    elapsed = time.perf_counter() - start_time
-
-    gif_path = OUTPUT_DIR / f"{task_id}.gif"
-
-    try:
-        recorder.save_gif(gif_path, duration=500)
-    finally:
-        env.close()
-
-    attempted = len(history)
-    failed_calls = sum(
-        not item["result"]["success"]
-        for item in history
-    )
-
-    low_level_actions = movement.action_count
-
-    row = {
+    except Exception as exc:
+        result = {"success": False, "status": "exception", "history": [], "high_level_steps": 0, "low_level_actions": runtime.action_count}
+        error = repr(exc)
+    elapsed = time.perf_counter() - started
+    env.close()
+    history = result.get("history", [])
+    return {
         "task_id": task_id,
-        "task": task_text,
-        "success": bool(success),
-        "high_level_steps": attempted,
-        "low_level_actions": low_level_actions,
-        "failed_skill_calls": failed_calls,
-        "invalid_skill_call_rate": (
-            failed_calls / attempted if attempted else 0.0
-        ),
-        "planner_run_wall_time_s": round(elapsed, 4),
-        "skill_sequence": " -> ".join(
-            item["skill"] for item in history
-        ),
-        "gif_path": str(gif_path.relative_to(ROOT)),
+        "task": task,
+        "seed": seed,
+        "success": bool(result.get("success", False)),
+        "status": result.get("status", "unknown"),
+        "high_level_steps": result.get("high_level_steps", len(history)),
+        "low_level_actions": result.get("low_level_actions", runtime.action_count),
+        "wall_time_s": round(elapsed, 4),
+        "skill_sequence": " -> ".join(record["call"]["name"] for record in history),
         "error": error,
-    }
-
-    detail = {
-        **row,
-        "planning_history": history,
-    }
-
-    print("\nTask result:", row)
-
-    return row, detail
+    }, result
 
 
 def main():
-    rows = []
-    details = []
-
-    for index, item in enumerate(TASKS):
-        print("\n" + "#" * 72)
-        print(f"Evaluating {item['id']}: {item['task']}")
-        print("#" * 72)
-
-        row, detail = run_one_task(
-            task_id=item["id"],
-            task_text=item["task"],
-            seed=42 + index,
-        )
-
+    scorer = QwenSkillRelevanceScorer() if __import__("os").getenv("DASHSCOPE_API_KEY") else KeywordRelevanceScorer()
+    rows, details = [], []
+    for index, (task_id, task) in enumerate(TASKS):
+        row, result = run_one(task_id, task, 42 + index, scorer)
         rows.append(row)
-        details.append(detail)
+        details.append({"metrics": row, "result": result})
+        print(row)
 
-    # 汇总指标
-    num_tasks = len(rows)
-    successful_tasks = sum(row["success"] for row in rows)
-
-    total_calls = sum(row["high_level_steps"] for row in rows)
-    total_failed_calls = sum(
-        row["failed_skill_calls"] for row in rows
-    )
-
-    summary = {
-        "num_tasks": num_tasks,
-        "successful_tasks": successful_tasks,
-        "failed_tasks": num_tasks - successful_tasks,
-        "task_success_rate": (
-            successful_tasks / num_tasks if num_tasks else 0.0
-        ),
-        "avg_high_level_steps": (
-            sum(row["high_level_steps"] for row in rows)
-            / num_tasks if num_tasks else 0.0
-        ),
-        "avg_low_level_actions": (
-            sum(row["low_level_actions"] for row in rows)
-            / num_tasks if num_tasks else 0.0
-        ),
-        "total_skill_calls": total_calls,
-        "failed_skill_calls": total_failed_calls,
-        "invalid_skill_call_rate": (
-            total_failed_calls / total_calls
-            if total_calls else 0.0
-        ),
-        "avg_planner_run_wall_time_s": (
-            sum(row["planner_run_wall_time_s"] for row in rows)
-            / num_tasks if num_tasks else 0.0
-        ),
-    }
-
-    # 保存逐任务 CSV
     csv_path = OUTPUT_DIR / "results.csv"
-
-    with csv_path.open("w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=list(rows[0].keys()),
-        )
+    with csv_path.open("w", newline="", encoding="utf-8-sig") as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
 
-    # 保存汇总与详细规划日志
+    summary = {
+        "num_tasks": len(rows),
+        "successful_tasks": sum(row["success"] for row in rows),
+        "task_success_rate": sum(row["success"] for row in rows) / len(rows),
+        "avg_low_level_actions": sum(row["low_level_actions"] for row in rows) / len(rows),
+        "avg_wall_time_s": sum(row["wall_time_s"] for row in rows) / len(rows),
+    }
     json_path = OUTPUT_DIR / "results.json"
-
-    with json_path.open("w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "summary": summary,
-                "tasks": details,
-            },
-            f,
-            ensure_ascii=False,
-            indent=2,
-            default=json_default,
-        )
-
-    print("\n" + "=" * 72)
-    print("BATCH EVALUATION SUMMARY")
-    print("=" * 72)
-
-    for key, value in summary.items():
-        if isinstance(value, float):
-            print(f"{key}: {value:.4f}")
-        else:
-            print(f"{key}: {value}")
-
-    print("\nCSV:", csv_path)
+    json_path.write_text(json.dumps({"summary": summary, "tasks": details}, ensure_ascii=False, indent=2), encoding="utf-8")
+    print("Summary:", summary)
+    print("CSV:", csv_path)
     print("JSON:", json_path)
-    print("GIF directory:", OUTPUT_DIR)
-
-    print("\nPer-task results:")
-    for row in rows:
-        print(
-            f"{row['task_id']}: "
-            f"success={row['success']}, "
-            f"skills={row['skill_sequence']}, "
-            f"actions={row['low_level_actions']}"
-        )
 
 
 if __name__ == "__main__":
