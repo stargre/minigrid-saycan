@@ -15,7 +15,7 @@ from skills.unified_library import SkillLibraryV1
 
 PROGRESS_STATUSES = {"action_executed", "searching", "phase_complete"}
 EXPECTED_SKILLS = {
-    "Explore", "Find", "NavigateTo", "PickUp", "OpenDoor",
+    "Explore", "Find", "NavigateTo", "Reach", "PickUp", "OpenDoor",
     "UnlockDoor", "PlaceNear", "MoveObstacle", "Done",
 }
 
@@ -291,6 +291,26 @@ def test_move_obstacle():
         env.close()
 
 
+def test_reach():
+    env, runtime, library = make_case(seed=112, door_state="open")
+    try:
+        goal = find(runtime, library, {"object": "goal", "color": "green"})
+        goal_pos = tuple(goal["evidence"]["position"])
+        result = run_until_terminal(
+            runtime,
+            library,
+            {"name": "Reach", "args": {"target": {"object": "goal", "color": "green"}}},
+        )
+        assert result["success"] and result["status"] == "skill_complete", result
+        assert tuple(runtime.belief.agent_pos) == goal_pos, (
+            f"Agent did not enter the target cell: agent={runtime.belief.agent_pos}, goal={goal_pos}"
+        )
+        assert "reach" in runtime.belief.completed_subgoals
+        print("PASS Reach: entered the known walkable goal cell and verified position")
+    finally:
+        env.close()
+
+
 def test_done():
     env, runtime, library = make_case(seed=110, door_state="open", fixture="ball_front")
     try:
@@ -335,6 +355,7 @@ def main():
         test_unlock_door,
         test_place_near,
         test_move_obstacle,
+        test_reach,
         test_done,
     ]
     for test in tests:

@@ -107,11 +107,21 @@ class TaskDependencyResolver:
             belief is not None and belief.find_objects("door", state="locked")
         )
         done_intent = any(word in text for word in ("done", "finish", "complete", "go to the door", "reach the door"))
+        movement_intent = any(
+            phrase in text
+            for phrase in ("go to", "navigate", "reach", "approach", "enter", "arrive at", "get to", "cross to")
+        )
+        goal_entry_intent = any(
+            phrase in text
+            for phrase in ("reach", "enter", "arrive at", "get to", "go to", "navigate to", "cross to")
+        )
 
         calls = [make_call("Explore")]
         for target in targets:
             calls.append(make_call("Find", target=target.to_dict()))
-            if any(word in text for word in ("go to", "navigate", "reach", "approach")) or target.object_name == "door":
+            if target.object_name == "goal" and goal_entry_intent:
+                calls.append(make_call("Reach", target=target.to_dict()))
+            elif movement_intent or target.object_name == "door":
                 calls.append(make_call("NavigateTo", target=target.to_dict()))
             if target.object_name in PICKABLE_OBJECTS and (
                 pick_verbs or (unlock_intent and target.object_name == "key")
@@ -191,7 +201,7 @@ class TaskDependencyResolver:
             prerequisites.append(make_call(name_, **kwargs))
 
         positions = self._known_positions(belief, target) if target is not None else []
-        if name in {"NavigateTo", "PickUp", "OpenDoor", "UnlockDoor", "Done"} and target is not None and not positions:
+        if name in {"NavigateTo", "Reach", "PickUp", "OpenDoor", "UnlockDoor", "Done"} and target is not None and not positions:
             add("Find", target=target)
 
         if name == "PickUp" and target is not None:

@@ -51,17 +51,28 @@ class ObservationNavigator:
         self._active_target = None
         self._approach_pos = None
 
-    def _find_path(self, start, goal):
-        """只在已知且可通行的格子中执行 BFS。"""
+    def _find_path(self, start, goal, allow_goal=False):
+        """只在已知且可通行的格子中执行 BFS。
+
+        By default, goal tiles remain excluded from transit routes so ordinary
+        navigation does not erase their identity in the belief map. A semantic
+        Reach skill may explicitly allow its designated goal cell as the final
+        path node, but never as an intermediate node.
+        """
         start = tuple(start)
         goal = tuple(goal)
 
         if start == goal:
             return [start]
 
-        if not self._safe_walkable(
-            self.belief.cell_at(goal)
-        ):
+        goal_cell = self.belief.cell_at(goal)
+        goal_is_allowed = bool(
+            allow_goal
+            and goal_cell is not None
+            and goal_cell.get("object") == "goal"
+            and is_walkable(goal_cell)
+        )
+        if not self._safe_walkable(goal_cell) and not goal_is_allowed:
             return None
 
         queue = deque([start])
@@ -75,8 +86,10 @@ class ObservationNavigator:
                     continue
 
                 cell = self.belief.cell_at(nxt)
-
-                if not self._safe_walkable(cell):
+                is_designated_goal = bool(
+                    allow_goal and nxt == goal and goal_is_allowed
+                )
+                if not self._safe_walkable(cell) and not is_designated_goal:
                     continue
 
                 parent[nxt] = current
@@ -133,7 +146,7 @@ class ObservationNavigator:
             ),
         }
 
-    def step_towards_cell(self, goal_pos):
+    def step_towards_cell(self, goal_pos, allow_goal=False):
         """
         向已知、可通行的目标格移动一步。
 
@@ -154,7 +167,7 @@ class ObservationNavigator:
                 "actions_executed": 0,
             }
 
-        path = self._find_path(start, goal)
+        path = self._find_path(start, goal, allow_goal=allow_goal)
 
         if path is None:
             return {

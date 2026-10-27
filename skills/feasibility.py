@@ -52,6 +52,25 @@ class SkillFeasibilityEvaluator:
         elif name == "Find":
             score = float(not positions and self._has_frontier())
             reason = "Search can reveal new observations." if score else ("Target is already known." if positions else "No reachable unexplored frontier remains.")
+        elif name == "Reach":
+            if positions:
+                pos, cell = min(
+                    positions,
+                    key=lambda item: abs(item[0][0] - self.belief.agent_pos[0])
+                    + abs(item[0][1] - self.belief.agent_pos[1]),
+                )
+                if not is_walkable(cell):
+                    reason = "Reach requires a known walkable target cell; use NavigateTo for non-walkable objects."
+                else:
+                    path = self.navigator._find_path(
+                        self.belief.agent_pos,
+                        pos,
+                        allow_goal=True,
+                    )
+                    score = float(path is not None)
+                    reason = "A known path to the target cell exists." if score else "No known path to the target cell."
+            else:
+                reason = "Find the target first."
         elif name == "NavigateTo":
             if positions:
                 pos = min((p for p, _ in positions), key=lambda p: abs(p[0]-self.belief.agent_pos[0])+abs(p[1]-self.belief.agent_pos[1]))

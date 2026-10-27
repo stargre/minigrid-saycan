@@ -298,6 +298,16 @@ class UnifiedSayCanPlanner:
             if not ({"pick", "pickup"} & done):
                 return False
 
+        goal_entry_intent = any(
+            phrase in text
+            for phrase in ("reach", "enter", "arrive at", "get to", "go to", "navigate to", "cross to")
+        )
+        if "goal" in text and goal_entry_intent:
+            if "reach" not in done and not (
+                self.runtime.terminated and self.runtime.last_reward > 0
+            ):
+                return False
+
         # A Find-only task must not succeed merely because the planner ran.
         if any(word in text for word in ("find", "search", "locate")):
             requested = parse_target_specs(task)

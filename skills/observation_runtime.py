@@ -15,6 +15,7 @@ class ObservationRuntime:
 
         self.action_count = 0
         self.last_obs = None
+        self.last_reward = 0.0
         self.terminated = False
         self.truncated = False
 
@@ -26,6 +27,7 @@ class ObservationRuntime:
 
         self.last_obs = obs
         self.action_count = 0
+        self.last_reward = 0.0
         self.terminated = False
         self.truncated = False
 
@@ -48,6 +50,7 @@ class ObservationRuntime:
         )
 
         self.action_count += 1
+        self.last_reward = float(reward)
         self.terminated = bool(terminated)
         self.truncated = bool(truncated)
 

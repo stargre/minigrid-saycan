@@ -12,7 +12,8 @@ The skill layer is observation-grounded: navigation and search use BeliefState.k
 |---|---|---|
 | Explore() | none | Expand the belief map by moving to reachable frontiers. |
 | Find(target) | semantic object description | Return target evidence if known; otherwise explore one action at a time. |
-| NavigateTo(target) | target | Reach an adjacent cell and face the target. |
+| NavigateTo(target) | target | Reach an adjacent cell and face a non-walkable target such as a door. |
+| Reach(target) | known walkable target cell | Navigate onto a walkable destination such as a green goal tile; verify position from observations and action history. |
 | PickUp(target) | movable object | Navigate, pick up, and verify the held object. |
 | OpenDoor(door) | door | Open an unlocked closed door and verify its observed state. |
 | UnlockDoor(door) | locked door | Requires a matching held key; interact and verify state change. |
@@ -34,6 +35,7 @@ Example dependencies:
 
 - Locked door: Find(key) -> PickUp(key) -> NavigateTo(door) -> UnlockDoor(door).
 - Object placement: Find(object) -> PickUp(object) -> Find(target) -> PlaceNear(object,target,relation).
+- Goal entry: Find(goal) -> Reach(goal), which differs from NavigateTo(goal): Reach enters the walkable target cell, while NavigateTo stops adjacent to the target.
 - Blocked route: move a movable obstacle to a known safe placement location, then recompute navigation from the updated belief map.
 
 Prerequisites are inserted as ordinary candidates; they are not executed behind the planner's back. After every primitive action, the planner refreshes feasibility and relevance.
@@ -68,4 +70,4 @@ For LLM scoring, set DASHSCOPE_API_KEY in the shell environment. Never commit AP
 
 ## Scope note
 
-MiniGrid DoorKey, Fetch, BlockedUnlockPickup, PutNear, GoToDoor, Crossing, and DynamicObstacles have different mechanics. The semantic skill APIs are designed to generalize, but the current SayCanGridEnv only instantiates one unlocked yellow door, one red ball, and one green goal. Do not claim those official environment families are validated until environment adapters and randomized acceptance tests for them are added.
+MiniGrid DoorKey, Fetch, BlockedUnlockPickup, PutNear, GoToDoor, Crossing, and DynamicObstacles have different mechanics. The semantic skill APIs are designed to generalize, but the current SayCanGridEnv only instantiates one unlocked yellow door, one red ball, and one green goal. Reach is included to distinguish entering a walkable goal tile from merely approaching an object. Do not claim those official environment families are validated until environment adapters and randomized acceptance tests for them are added.

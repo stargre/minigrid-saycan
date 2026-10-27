@@ -12,7 +12,7 @@ def main():
     runtime = ObservationRuntime(env)
     runtime.reset(obs, initial_inventory="empty")
     library = SkillLibraryV1(runtime)
-    expected = {"Explore", "Find", "NavigateTo", "PickUp", "OpenDoor", "UnlockDoor", "PlaceNear", "MoveObstacle", "Done"}
+    expected = {"Explore", "Find", "NavigateTo", "Reach", "PickUp", "OpenDoor", "UnlockDoor", "PlaceNear", "MoveObstacle", "Done"}
     assert set(library.names) == expected
     result = library.execute({"name": "Find", "args": {"target": {"object": "ball", "color": "red"}}})
     assert result["status"] in {"target_found", "searching", "action_executed", "exploration_exhausted"}

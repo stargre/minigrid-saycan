@@ -35,6 +35,17 @@ class DependencyTests(unittest.TestCase):
         self.assertTrue(place)
         self.assertEqual(place[0]["args"]["relation"], "above")
 
+    def test_goal_entry_candidate_uses_reach(self):
+        calls = TaskDependencyResolver().candidate_calls("Unlock the door and reach the green goal")
+        self.assertTrue(any(
+            c["name"] == "Reach" and c["args"]["target"]["object"] == "goal"
+            for c in calls
+        ))
+        self.assertFalse(any(
+            c["name"] == "NavigateTo" and c["args"]["target"]["object"] == "goal"
+            for c in calls
+        ))
+
 
 class RelevanceTests(unittest.TestCase):
     def test_offline_scores_are_bounded(self):
