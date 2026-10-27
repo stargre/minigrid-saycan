@@ -12,6 +12,7 @@ python -m unittest discover -s tests -v
 python scripts/19_skill_library_v1_smoke_test.py
 python scripts/20_skill_acceptance_suite.py
 python scripts/21_skill_behavior_suite.py
+python scripts/22_hidden_state_audit.py
 python scripts/08_saycan_planner_test.py
 \`
 

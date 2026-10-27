@@ -46,6 +46,7 @@ Install requirements.txt. Then run:
     python scripts/19_skill_library_v1_smoke_test.py
     python scripts/20_skill_acceptance_suite.py
     python scripts/21_skill_behavior_suite.py
+    python scripts/22_hidden_state_audit.py
     python scripts/08_saycan_planner_test.py
 
 For LLM scoring, set DASHSCOPE_API_KEY in the shell environment. Never commit API keys or .env files.
@@ -57,9 +58,11 @@ For LLM scoring, set DASHSCOPE_API_KEY in the shell environment. Never commit AP
 3. Unknown targets cause bounded exploration; known targets stop search immediately.
 4. Primitive actions go only through ObservationRuntime.execute_action.
 5. Door, pickup, and placement success is based on updated observations, not action intent.
-6. No infinite loops: search and planner have action/decision limits and explicit failure statuses.
-7. Run scripts/20_skill_acceptance_suite.py and scripts/21_skill_behavior_suite.py; every public skill must pass its independent behavior checks.
-8. Run scripts/08_saycan_planner_test.py over multiple seeds and verify both planner-reported and ground-truth success.
+6. Run scripts/22_hidden_state_audit.py; decision modules must not read hidden environment state, and primitive actions must pass through ObservationRuntime.execute_action.
+7. No infinite loops: search and planner have action/decision limits and explicit failure statuses.
+8. Run scripts/20_skill_acceptance_suite.py and scripts/21_skill_behavior_suite.py; every public skill must pass its independent behavior checks.
+9. Run scripts/22_hidden_state_audit.py and verify the guarded end-to-end tasks pass.
+10. Run scripts/08_saycan_planner_test.py over multiple seeds and verify both planner-reported and ground-truth success.
 9. The unit suite and multi-seed environment suite must pass before tagging this version as frozen.
 10. A single explore -> approach -> open pass is not sufficient evidence of skill-library completeness.
 
