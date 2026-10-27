@@ -255,9 +255,12 @@ class UnifiedSayCanPlanner:
 
             result = self.step(task)
             status = result.get("status", "unknown")
+            # A skill-level search failure is not necessarily a task failure.
+            # For example, Find(ball) may exhaust the currently reachable room
+            # because a closed door separates the ball from the agent. Re-score
+            # candidates so the planner can navigate to/open the door and retry.
             if status in {
                 "no_feasible_candidate",
-                "target_not_found",
                 "exploration_exhausted",
                 "exploration_stalled",
                 "episode_ended",

@@ -48,6 +48,14 @@ def run_find(library, runtime, target, max_calls=300):
 def run_seed(seed):
     env = SayCanGridEnv(render_mode=None)
     obs, _ = env.reset(seed=seed)
+
+    # This is a unit-test fixture for Find itself: open the separating door
+    # before the agent starts so every generated target lies in the same
+    # reachable region. The end-to-end planner test separately validates
+    # finding a target across a closed door by selecting OpenDoor.
+    env.grid.get(*env.door_pos).is_open = True
+    obs = env.gen_obs()
+
     runtime = ObservationRuntime(env)
     runtime.reset(obs, initial_inventory="empty")
     library = SkillLibraryV1(runtime)
