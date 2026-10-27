@@ -265,23 +265,61 @@ class MoveObstacleSkill(UnifiedSkill):
         self._active_key = None
 
     def step(self, target, destination, relation="near", **kwargs):
-        key = (TargetSpec.from_value(target).key, TargetSpec.from_value(destination).key, relation)
+        target_spec = TargetSpec.from_value(target)
+        key = (
+            target_spec.key,
+            TargetSpec.from_value(destination).key,
+            str(relation).strip().lower(),
+        )
         if key != self._active_key:
             self._active_key, self._phase = key, "pickup"
+
+        # The belief state is the source of truth for the phase transition.
+        # A stale phase flag must never make MoveObstacle skip a required pickup.
+        held = getattr(self.belief, "held_object", None)
+        holding_target = bool(held and target_spec.matches(held))
+        if self._phase == "place" and not holding_target:
+            self._phase = "pickup"
+
         if self._phase == "pickup":
             result = self.pickup.step(target)
-            if result.get("success"):
+            held_after = getattr(self.belief, "held_object", None)
+            holding_target_after = bool(
+                held_after and target_spec.matches(held_after)
+            )
+            if result.get("success") and holding_target_after:
                 self._phase = "place"
                 result["success"] = False
                 result["status"] = "phase_complete"
-                result["reason"] = "Obstacle pickup is complete; the next invocation will place it."
+                result["reason"] = (
+                    "Target pickup is confirmed by the belief state; "
+                    "the next invocation will place it."
+                )
+            elif result.get("success") and not holding_target_after:
+                # Fail closed if a child skill reports success without a
+                # matching held-object observation.
+                result["success"] = False
+                result["status"] = "pickup_not_confirmed"
+                result["reason"] = (
+                    "PickUp reported success, but the target is not present "
+                    "in the current held-object belief."
+                )
             result["skill"] = self.name
             result["phase"] = "pickup"
             return result
-        result = self.place.step(object=target, target=destination, relation=relation)
+
+        result = self.place.step(
+            object=target,
+            target=destination,
+            relation=relation,
+        )
         if result.get("success"):
             self._phase = "pickup"
             self._active_key = None
+        elif result.get("status") == "not_holding_object":
+            # Resynchronize on the next controller tick instead of retaining
+            # a place phase that contradicts the observed inventory.
+            self._phase = "pickup"
         result["skill"] = self.name
         result["phase"] = "place"
         return result

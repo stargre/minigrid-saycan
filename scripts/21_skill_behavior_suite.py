@@ -256,7 +256,18 @@ def test_place_near():
 def test_move_obstacle():
     env, runtime, library = make_case(seed=109, door_state="open", fixture="box")
     try:
+        # Establish observation evidence for both semantic arguments before
+        # asking the composite skill to execute its pickup/place phases.
+        box = find(runtime, library, {"object": "box", "color": "blue"})
         find(runtime, library, {"object": "goal", "color": "green"})
+        box_pos = tuple(box["evidence"]["position"])
+        box_cell = runtime.belief.cell_at(box_pos)
+        assert box_cell and box_cell["object"] == "box" and box_cell["color"] == "blue", (
+            f"Box evidence was lost before MoveObstacle: {box_cell}"
+        )
+        assert runtime.belief.held_object is None, (
+            "MoveObstacle fixture must begin with an empty gripper."
+        )
         result = run_until_terminal(
             runtime, library,
             {
