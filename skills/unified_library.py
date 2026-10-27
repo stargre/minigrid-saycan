@@ -287,7 +287,12 @@ class MoveObstacleSkill(UnifiedSkill):
             holding_target_after = bool(
                 held_after and target_spec.matches(held_after)
             )
-            if result.get("success") and holding_target_after:
+            child_status = result.get("status")
+
+            # A navigator tick may return success=True with
+            # status=action_executed. That means only that a primitive
+            # action ran; it does not mean the pickup skill has completed.
+            if child_status == "skill_complete" and holding_target_after:
                 self._phase = "place"
                 result["success"] = False
                 result["status"] = "phase_complete"
@@ -295,14 +300,14 @@ class MoveObstacleSkill(UnifiedSkill):
                     "Target pickup is confirmed by the belief state; "
                     "the next invocation will place it."
                 )
-            elif result.get("success") and not holding_target_after:
-                # Fail closed if a child skill reports success without a
-                # matching held-object observation.
+            elif child_status == "skill_complete" and not holding_target_after:
+                # Fail closed only when the child claims the entire pickup
+                # skill is complete but belief does not confirm possession.
                 result["success"] = False
                 result["status"] = "pickup_not_confirmed"
                 result["reason"] = (
-                    "PickUp reported success, but the target is not present "
-                    "in the current held-object belief."
+                    "PickUp reported skill_complete, but the target is not "
+                    "present in the current held-object belief."
                 )
             result["skill"] = self.name
             result["phase"] = "pickup"
