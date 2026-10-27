@@ -205,22 +205,31 @@ class ObservationExplorer:
 
             desired_direction = DIRECTIONS.index(delta)
 
-            if (
-                self.belief.agent_dir
-                != desired_direction
-            ):
+            difference = (
+                desired_direction - self.belief.agent_dir
+            ) % 4
+
+            if difference != 0:
+                # A 180-degree turn needs two primitive actions. Do not mark
+                # the frontier as pending until the final 90-degree turn:
+                # after the first right turn, the agent is still facing away
+                # from the target cell and that cell may remain unobserved.
+                if difference == 2:
+                    return self._execute(
+                        Actions.right,
+                        "Turning halfway toward an unexplored frontier.",
+                    )
+
+                # For a 90-degree turn, the next observation should face the
+                # frontier. Only now is it valid to test whether that cell is
+                # visible and, if not, mark the directed edge as blocked.
                 self.pending_frontier = (
                     frontier_pos,
                     unknown_pos,
                 )
 
                 return self._execute(
-                    Actions.right
-                    if (
-                        desired_direction
-                        - self.belief.agent_dir
-                    ) % 4 in (1, 2)
-                    else Actions.left,
+                    Actions.right if difference == 1 else Actions.left,
                     "Turning toward an unexplored frontier.",
                 )
 
