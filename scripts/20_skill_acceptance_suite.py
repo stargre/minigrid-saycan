@@ -61,7 +61,7 @@ def run_seed(seed):
     library = SkillLibraryV1(runtime)
 
     expected = {
-        "Explore", "Find", "NavigateTo", "PickUp", "OpenDoor",
+        "Explore", "Find", "NavigateTo", "Reach", "PickUp", "OpenDoor",
         "UnlockDoor", "PlaceNear", "MoveObstacle", "Done",
     }
     assert set(library.names) == expected
