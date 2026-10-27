@@ -10,6 +10,7 @@ The audit has two layers:
 Ground-truth inspection in this script is evaluation-only and happens after the
 planner finishes; it is never passed into the planner or skill library.
 """
+import ast
 import inspect
 import re
 from pathlib import Path
@@ -34,52 +35,112 @@ DECISION_FILES = [
     "planners/unified_saycan_planner.py",
     "llm/skill_relevance.py",
 ]
-FORBIDDEN_PATTERNS = {
-    "direct hidden-state attribute access": re.compile(
-        r"\b(?:self\.)?env\.(?:grid|agent_pos|agent_dir|carrying|"
-        r"door_pos|ball_pos|goal_pos|target_pos|unwrapped)\b"
-        r"|\b(?:runtime|self\.runtime)\.env\."
-        r"(?:grid|agent_pos|agent_dir|carrying|door_pos|ball_pos|"
-        r"goal_pos|target_pos|unwrapped)\b"
-    ),
-    "primitive action bypasses ObservationRuntime": re.compile(
-        r"\b(?:self\.)?env\.step\s*\("
-        r"|\b(?:self\.)?runtime\.env\.step\s*\("
-    ),
-    "wrapper/environment oracle access": re.compile(
-        r"\.get_wrapper_attr\s*\(|\b(?:env|runtime\.env)\.unwrapped\b"
-    ),
-    "label/ground-truth info used in decisions": re.compile(
-        r"\b(?:info|_info)\s*\[\s*['\"]"
-        r"(?:is_success|ball_pos|door_pos|target_pos|goal_pos|ball_side)['\"]"
-    ),
+HIDDEN_ATTRIBUTES = {
+    "grid", "agent_pos", "agent_dir", "carrying",
+    "door_pos", "ball_pos", "goal_pos", "target_pos", "unwrapped",
+}
+GROUND_TRUTH_INFO_KEYS = {
+    "is_success", "ball_pos", "door_pos", "target_pos",
+    "goal_pos", "ball_side",
 }
 
 
+def _attribute_chain(node):
+    """Return a dotted AST attribute chain without evaluating source code."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _attribute_chain(node.value)
+        return f"{prefix}.{node.attr}" if prefix else node.attr
+    return ""
+
+
+def _is_environment_receiver(chain):
+    """Recognize env references used by the decision code."""
+    return bool(chain) and (
+        chain == "env"
+        or chain.endswith(".env")
+    )
+
+
 def static_audit():
+    """Inspect executable AST nodes, never comments/docstrings/string literals."""
     failures = []
     for relative in DECISION_FILES:
         path = ROOT / relative
         if not path.is_file():
             failures.append(f"Missing decision module: {relative}")
             continue
-        for line_number, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), start=1
-        ):
-            stripped = line.lstrip()
-            if stripped.startswith("#"):
-                continue
-            for label, pattern in FORBIDDEN_PATTERNS.items():
-                if pattern.search(line):
+        source = path.read_text(encoding="utf-8")
+        try:
+            tree = ast.parse(source, filename=relative)
+        except SyntaxError as exc:
+            failures.append(f"{relative}:{exc.lineno}: Python syntax error: {exc.msg}")
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute):
+                chain = _attribute_chain(node)
+                receiver, _, attr = chain.rpartition(".")
+                if attr in HIDDEN_ATTRIBUTES and _is_environment_receiver(receiver):
                     failures.append(
-                        f"{relative}:{line_number}: {label}: {stripped.strip()}"
+                        f"{relative}:{node.lineno}: direct hidden-state access: {chain}"
                     )
+                if attr == "get_wrapper_attr":
+                    failures.append(
+                        f"{relative}:{node.lineno}: wrapper attribute oracle access: {chain}"
+                    )
+
+            elif isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Attribute):
+                    receiver = _attribute_chain(func.value)
+                    if func.attr == "step" and _is_environment_receiver(receiver):
+                        failures.append(
+                            f"{relative}:{node.lineno}: primitive action bypass: {receiver}.step(...)"
+                        )
+                    if func.attr == "get_wrapper_attr":
+                        failures.append(
+                            f"{relative}:{node.lineno}: wrapper attribute oracle access"
+                        )
+
+                # Catch simple dynamic access such as getattr(env, "grid").
+                if (
+                    isinstance(func, ast.Name)
+                    and func.id == "getattr"
+                    and len(node.args) >= 2
+                    and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)
+                ):
+                    receiver = _attribute_chain(node.args[0])
+                    attr = node.args[1].value
+                    if _is_environment_receiver(receiver) and attr in HIDDEN_ATTRIBUTES:
+                        failures.append(
+                            f"{relative}:{node.lineno}: dynamic hidden-state access: "
+                            f"getattr({receiver}, {attr!r})"
+                        )
+
+            elif isinstance(node, ast.Subscript):
+                value_chain = _attribute_chain(node.value)
+                key_node = node.slice
+                if (
+                    value_chain in {"info", "_info"}
+                    and isinstance(key_node, ast.Constant)
+                    and key_node.value in GROUND_TRUTH_INFO_KEYS
+                ):
+                    failures.append(
+                        f"{relative}:{node.lineno}: ground-truth info used in decisions: "
+                        f"{value_chain}[{key_node.value!r}]"
+                    )
+
     if failures:
         raise AssertionError(
             "Static hidden-state audit failed:\n  - " + "\n  - ".join(failures)
         )
-    print(f"PASS static audit: {len(DECISION_FILES)} decision modules scanned")
-
+    print(
+        f"PASS static audit: {len(DECISION_FILES)} decision modules scanned "
+        "(AST-only; comments and docstrings ignored)"
+    )
 
 class StepOnlyEnv:
     """Proxy that exposes only step() and rejects privileged reads."""
