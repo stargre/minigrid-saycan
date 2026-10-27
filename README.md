@@ -10,6 +10,9 @@ Use Python 3.10+ in a virtual environment:
 python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 python -m unittest discover -s tests -v
 python scripts/19_skill_library_v1_smoke_test.py
+python scripts/20_skill_acceptance_suite.py
+python scripts/21_skill_behavior_suite.py
+python scripts/08_saycan_planner_test.py
 \`
 
 To use Qwen for relevance scoring, set DASHSCOPE_API_KEY in your shell and inject QwenSkillRelevanceScorer into UnifiedSayCanPlanner. Do not put API keys in source control.
