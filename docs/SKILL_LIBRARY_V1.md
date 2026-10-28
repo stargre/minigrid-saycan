@@ -88,3 +88,14 @@ with positive reward at the goal, the door is open/unlocked, and the belief
 state records both unlock and open evidence. Failures are retained in the JSON
 report so the first broken skill/dependency can be diagnosed without changing
 the primitive controllers blindly.
+
+
+## DoorKey completion-state fix
+
+For DoorKey transitions, a single successful toggle may move a matching-key
+locked door directly to the open state. The belief state records both
+`unlock_door` and `open_door` when that transition is observed. Task
+completion also preserves successful historical Find evidence: an object does
+not become "never found" merely because it was picked up or the agent later
+crossed its map cell. The final environment-level acceptance test still checks
+the real terminal state independently.

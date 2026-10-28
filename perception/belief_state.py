@@ -128,12 +128,18 @@ class BeliefState:
             self._mark_completed("pick")
             self._mark_completed("pickup")
 
-        # A successful toggle is verified from the observed door state change.
+        # Record every state transition supported by the new observation.
+        # In MiniGrid DoorKey, toggling a locked door with the matching key can
+        # transition directly from locked to open, satisfying both subgoals.
         if action_id == int(Actions.toggle) and before_front.get("object") == "door":
-            if before_front.get("state") == "closed" and after_front.get("state") == "open":
+            before_state = before_front.get("state")
+            after_state = after_front.get("state")
+            if before_state == "closed" and after_state == "open":
                 self._mark_completed("open_door")
-            elif before_front.get("state") == "locked" and after_front.get("state") in {"closed", "open"}:
+            elif before_state == "locked" and after_state in {"closed", "open"}:
                 self._mark_completed("unlock_door")
+                if after_state == "open":
+                    self._mark_completed("open_door")
 
         # Drop puts the held object into the cell directly in front.
         if action_id == int(Actions.drop) and before_held is not None:

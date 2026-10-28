@@ -308,11 +308,27 @@ class UnifiedSayCanPlanner:
             ):
                 return False
 
-        # A Find-only task must not succeed merely because the planner ran.
+        # Finding is an evidence requirement, not a requirement that every
+        # object remain visible forever. Picked-up objects disappear from their
+        # map cells, and the agent may overwrite a door/goal cell while crossing
+        # it. Accept current map evidence, a matching held object, or a
+        # successful Find result recorded earlier in this run.
         if any(word in text for word in ("find", "search", "locate")):
             requested = parse_target_specs(task)
+            belief = self.runtime.belief
+            held = getattr(belief, "held_object", None)
             for spec in requested:
-                if not any(spec.matches(cell) for cell in self.runtime.belief.known_map.values()):
+                known_now = any(
+                    spec.matches(cell) for cell in belief.known_map.values()
+                )
+                held_now = bool(held and spec.matches(held))
+                found_earlier = any(
+                    record.get("call", {}).get("name") == "Find"
+                    and record.get("result", {}).get("success")
+                    and spec.matches(record.get("result", {}).get("target", {}))
+                    for record in self.history
+                )
+                if not (known_now or held_now or found_earlier):
                     return False
 
         return bool(self.history)
