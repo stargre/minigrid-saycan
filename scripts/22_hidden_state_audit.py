@@ -25,14 +25,13 @@ from skills.observation_runtime import ObservationRuntime
 
 ROOT = Path(__file__).resolve().parents[1]
 DECISION_FILES = [
-    "skills/unified_library.py",
-    "skills/observation_explorer.py",
-    "skills/navigation.py",
-    "skills/feasibility.py",
-    "skills/dependency.py",
-    "skills/target.py",
-    "perception/belief_state.py",
-    "planners/unified_saycan_planner.py",
+    "skills/base.py", "skills/search.py", "skills/navigation_skills.py",
+    "skills/doors.py", "skills/manipulation_skills.py",
+    "skills/interaction_skill.py", "skills/registry.py",
+    "skills/unified_library.py", "skills/observation_runtime.py",
+    "skills/observation_explorer.py", "skills/navigation.py",
+    "skills/feasibility.py", "skills/dependency.py", "skills/target.py",
+    "perception/belief_state.py", "planners/unified_saycan_planner.py",
     "llm/skill_relevance.py",
 ]
 HIDDEN_ATTRIBUTES = {
