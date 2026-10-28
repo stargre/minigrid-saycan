@@ -62,6 +62,16 @@ def _is_environment_receiver(chain):
     )
 
 
+def _enclosing_function_name(node, parent_map):
+    """Return the nearest enclosing function name for an AST node."""
+    current = node
+    while current in parent_map:
+        current = parent_map[current]
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return current.name
+    return None
+
+
 def static_audit():
     """Inspect executable AST nodes, never comments/docstrings/string literals."""
     failures = []
@@ -76,6 +86,12 @@ def static_audit():
         except SyntaxError as exc:
             failures.append(f"{relative}:{exc.lineno}: Python syntax error: {exc.msg}")
             continue
+
+        parent_map = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
 
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute):
@@ -95,9 +111,18 @@ def static_audit():
                 if isinstance(func, ast.Attribute):
                     receiver = _attribute_chain(func.value)
                     if func.attr == "step" and _is_environment_receiver(receiver):
-                        failures.append(
-                            f"{relative}:{node.lineno}: primitive action bypass: {receiver}.step(...)"
+                        # The runtime gateway is the one legitimate place where
+                        # the environment's step() is called. Still reject calls
+                        # anywhere else in that module, including other methods.
+                        allowed_gateway_call = (
+                            relative == "skills/observation_runtime.py"
+                            and receiver == "self.env"
+                            and _enclosing_function_name(node, parent_map) == "execute_action"
                         )
+                        if not allowed_gateway_call:
+                            failures.append(
+                                f"{relative}:{node.lineno}: primitive action bypass: {receiver}.step(...)"
+                            )
                     if func.attr == "get_wrapper_attr":
                         failures.append(
                             f"{relative}:{node.lineno}: wrapper attribute oracle access"
