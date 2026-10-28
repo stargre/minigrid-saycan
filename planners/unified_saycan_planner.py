@@ -17,11 +17,11 @@ from llm.skill_relevance import KeywordRelevanceScorer
 # Mentioning a door or a goal in later action clauses must not silently require
 # separate Find(door)/Find(goal) calls.
 _FIND_CLAUSE = re.compile(
-    r"\\b(?:find|search(?:\\s+for)?|locate)\\s+(.*?)"
-    r"(?=(?:\\s*,?\\s*(?:(?:and|then)\\s+)?"
-    r"(?:find|search|locate|unlock|open|reach|enter|go(?:\\s+to)?|"
-    r"navigate(?:\\s+to)?|pick(?:\\s+up)?|take|grab|place|put|drop|"
-    r"move|cross|finish|complete)\\b)|[.;]|$)",
+    r"\b(?:find|search(?:\s+for)?|locate)\s+(.*?)"
+    r"(?=(?:\s*,?\s*(?:(?:and|then)\s+)?"
+    r"(?:find|search|locate|unlock|open|reach|enter|go(?:\s+to)?|"
+    r"navigate(?:\s+to)?|pick(?:\s+up)?|take|grab|place|put|drop|"
+    r"move|cross|finish|complete)\b)|[.;]|$)",
     re.IGNORECASE,
 )
 
