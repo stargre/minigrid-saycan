@@ -1,47 +1,90 @@
-# MiniGrid SayCan: Observation-Grounded Robot Skills
+# MiniGrid SayCan — Skill Library v1.0
 
-This repository separates high-level task planning from a fixed low-level skill library. The current implementation includes the original experimental environment and a new observation-grounded \`skill_library_v1\` API.
+A modular, observation-grounded SayCan-style planning system for MiniGrid. The planner selects semantic skills; deterministic controllers execute primitive actions through one runtime gateway; a belief state is updated from observations and action history.
 
-## Quick start
+> Validation scope: the custom SayCanGrid task and the official MiniGrid DoorKey acceptance suite are separate test targets. Passing one does not imply support for every MiniGrid task family.
 
-Use Python 3.10+ in a virtual environment:
+## Architecture
 
-\`bash
-python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-python -m unittest discover -s tests -v
-python scripts/19_skill_library_v1_smoke_test.py
-python scripts/20_skill_acceptance_suite.py
-python scripts/21_skill_behavior_suite.py
-python scripts/22_hidden_state_audit.py
-python scripts/08_saycan_planner_test.py
-\`
+Task text → UnifiedSayCanPlanner → dependency resolution + feasibility + relevance scoring → SkillLibraryV1 → semantic skill controller → ObservationRuntime.execute_action → MiniGrid step → BeliefState.update → replan.
 
-To use Qwen for relevance scoring, set DASHSCOPE_API_KEY in your shell and inject QwenSkillRelevanceScorer into UnifiedSayCanPlanner. Do not put API keys in source control.
+## Repository layout
 
-## New stable interfaces
+### Environment and perception
+- **environments/saycan_grid.py** — custom task environment for baseline regression.
+- **perception/belief_state.py** — observation/history-derived local map, estimated pose, inventory and completed-subgoal evidence.
+- **perception/observation_summary.py** — converts a single observation into a structured summary.
+- **skills/observation_runtime.py** — only permitted primitive-action gateway; discards environment info.
+- **skills/navigation.py** — observation-grounded path search and one-step navigation primitives.
+- **skills/observation_explorer.py** — frontier exploration controller.
+- **skills/target.py** — target parsing/matching, canonical object names and spatial-relation helpers.
 
-- skills.unified_library.SkillLibraryV1: Explore, Find(target), NavigateTo(target), PickUp(target), OpenDoor(door), UnlockDoor(door), PlaceNear(object,target,relation), MoveObstacle(object,destination,relation), Done(target).
-- skills.feasibility.SkillFeasibilityEvaluator: deterministic physical feasibility based on the agent's belief state.
-- skills.dependency.TaskDependencyResolver: semantic candidates and prerequisite chains.
-- planners.unified_saycan_planner.UnifiedSayCanPlanner: selects skills by relevance × feasibility and re-evaluates after every action.
-- llm.skill_relevance.QwenSkillRelevanceScorer: Qwen relevance adapter; KeywordRelevanceScorer is only an offline fallback.
+### Modular skill library
+- **skills/base.py** — shared result contract and target/map helpers.
+- **skills/search.py** — Explore and Find(target).
+- **skills/navigation_skills.py** — NavigateTo(target) and Reach(target).
+- **skills/doors.py** — OpenDoor(door) and UnlockDoor(door).
+- **skills/manipulation_skills.py** — PickUp(target), PlaceNear(object,target,relation), and composite MoveObstacle.
+- **skills/interaction_skill.py** — Done(target).
+- **skills/registry.py** — canonical registry and uniform execute(call) API.
+- **skills/unified_library.py** — compatibility facade; existing imports remain valid.
+- **skills/dependency.py** — candidate calls and prerequisites; never executes actions.
+- **skills/feasibility.py** — deterministic feasibility evaluation from belief state only.
+- **skills/library.py** — legacy adapter retained for older callers; new code should use SkillLibraryV1.
 
-Every skill call returns success, status, reason, skill, and actions_executed. A skill step executes at most one primitive action; all primitive actions go through ObservationRuntime, which does not expose environment info.
+### Planning and model adapters
+- **planners/unified_saycan_planner.py** — candidate scoring, selection, bounded skill execution, replanning and belief-side completion checks.
+- **planners/saycan_planner.py** — backward-compatible planner adapter.
+- **planners/observation_task_controller.py** — standalone observation-driven task controller retained for callers that still import it.
+- **llm/skill_relevance.py** — keyword fallback and parameterized Qwen relevance adapter.
+- **requirements.txt** — Python dependencies.
 
-## Scope and claims
+### Tests and evaluation
+- **tests/test_skill_contract.py** — target parsing, dependency-call construction and relevance-score contract.
+- **tests/test_task_completion.py** — task-completion evidence regression tests.
+- **tests/test_refactor_integrity.py** — imports, registry contract, planner wiring and one-step action invariant.
+- **scripts/19_skill_library_v1_smoke_test.py** — registry/import smoke test.
+- **scripts/20_skill_acceptance_suite.py** — search/acceptance regression over seeds.
+- **scripts/21_skill_behavior_suite.py** — independent behavioral checks for all ten public skills.
+- **scripts/22_hidden_state_audit.py** — static and guarded-runtime audit for hidden-state access and action-gateway bypass.
+- **scripts/23_official_doorkey_acceptance.py** — official DoorKey 5x5/6x6 integration tests.
+- **scripts/08_saycan_planner_test.py** — one end-to-end custom task; accepts SEED.
+- **scripts/09_batch_evaluation.py** — five task-language variants with CSV/JSON metrics.
 
-The existing SayCanGridEnv is a custom task with a red ball, an unlocked yellow door, and a green goal. The generic skill API is designed to parameterize different objects, but official MiniGrid families such as DoorKey, Fetch, BlockedUnlockPickup, PutNear, GoToDoor, Crossing, and DynamicObstacles must each be run through acceptance tests before claiming support. See docs/SKILL_LIBRARY_V1.md for architecture, limits, and the freeze checklist.
+Early tutorial scripts and tests tied to superseded primitive controllers are intentionally excluded from the v1.0 workflow.
 
+## Install
 
-### Official MiniGrid DoorKey validation
+Python 3.10+ is recommended.
 
-After the custom skill-library checks pass, run:
+    python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-```bash
-python scripts/23_official_doorkey_acceptance.py
-```
+## Verification commands
 
-This checks official DoorKey 5x5 and 6x6 variants over five seeds each, uses a
-step-only environment proxy during planning, and writes detailed results to
-`outputs/doorkey_eval/results.json`. The test is an integration gate, not a
-claim that the official environment has already passed.
+    python -m unittest discover -s tests -v
+    python scripts/19_skill_library_v1_smoke_test.py
+    python scripts/20_skill_acceptance_suite.py
+    python scripts/21_skill_behavior_suite.py
+    python scripts/22_hidden_state_audit.py
+    SEED=0 python scripts/08_saycan_planner_test.py
+    python scripts/23_official_doorkey_acceptance.py
+    python scripts/09_batch_evaluation.py
+
+Multi-seed regression:
+
+    mkdir -p outputs/multiseed
+    for seed in $(seq 0 19); do
+      SEED=$seed python scripts/08_saycan_planner_test.py || exit 1
+    done
+
+To use Qwen, configure DASHSCOPE_API_KEY and inject QwenSkillRelevanceScorer into UnifiedSayCanPlanner. With the key unset, the default scorer is offline keyword scoring; do not report that as an LLM-planner experiment.
+
+## Public skill contract
+
+A call has the shape {"name":"PickUp","args":{"target":{"object":"ball","color":"red"}}}. Every result includes success, status, reason, skill and actions_executed. One registry invocation advances a skill by at most one primitive action. The planner may repeatedly invoke the controller under explicit budgets.
+
+LLMs supply relevance scores only. Feasibility remains deterministic, and all physical actions pass through ObservationRuntime.execute_action. Ground-truth state is allowed in test setup and post-run evaluation, never as input to skill decisions.
+
+## Freeze policy
+
+Do not tag v1.0 as frozen until unit tests, smoke test, acceptance suite, all-skill behavior suite, hidden-state audit, 20-seed custom-task regression, five task variants and the 10-case official DoorKey suite pass on the refactored commit. Preserve logs and record Python/dependency versions. Other official MiniGrid families require their own acceptance tests.
