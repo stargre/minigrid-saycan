@@ -4,11 +4,38 @@ The LLM (or offline scorer) selects a semantic skill. The selected deterministic
 controller is then called repeatedly until it succeeds, fails terminally, stalls,
 or reaches a bounded action budget. Primitive actions never go to the LLM.
 """
+import re
+
 from skills.dependency import TaskDependencyResolver
 from skills.feasibility import SkillFeasibilityEvaluator
 from skills.unified_library import SkillLibraryV1
 from skills.target import parse_target_specs
 from llm.skill_relevance import KeywordRelevanceScorer
+
+
+# Only verbs that explicitly request search introduce Find evidence obligations.
+# Mentioning a door or a goal in later action clauses must not silently require
+# separate Find(door)/Find(goal) calls.
+_FIND_CLAUSE = re.compile(
+    r"\\b(?:find|search(?:\\s+for)?|locate)\\s+(.*?)"
+    r"(?=(?:\\s*,?\\s*(?:(?:and|then)\\s+)?"
+    r"(?:find|search|locate|unlock|open|reach|enter|go(?:\\s+to)?|"
+    r"navigate(?:\\s+to)?|pick(?:\\s+up)?|take|grab|place|put|drop|"
+    r"move|cross|finish|complete)\\b)|[.;]|$)",
+    re.IGNORECASE,
+)
+
+
+def _explicit_find_targets(task):
+    """Parse targets in explicit Find/Search/Locate clauses only."""
+    targets = []
+    seen = set()
+    for match in _FIND_CLAUSE.finditer(str(task)):
+        for spec in parse_target_specs(match.group(1)):
+            if spec.key not in seen:
+                targets.append(spec)
+                seen.add(spec.key)
+    return targets
 
 
 class UnifiedSayCanPlanner:
@@ -314,7 +341,7 @@ class UnifiedSayCanPlanner:
         # it. Accept current map evidence, a matching held object, or a
         # successful Find result recorded earlier in this run.
         if any(word in text for word in ("find", "search", "locate")):
-            requested = parse_target_specs(task)
+            requested = _explicit_find_targets(task)
             belief = self.runtime.belief
             held = getattr(belief, "held_object", None)
             for spec in requested:

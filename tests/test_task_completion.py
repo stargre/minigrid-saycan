@@ -77,6 +77,29 @@ class TaskCompletionTests(unittest.TestCase):
         # There is no historical Find result for the blue ball.
         self.assertFalse(planner._task_success("Find the blue ball"))
 
+    def test_find_obligation_only_applies_to_explicit_search_target(self):
+        planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
+        planner.runtime = FakeRuntime()
+        planner.history = [
+            {
+                "call": {
+                    "name": "Find",
+                    "args": {"target": {"object": "key", "color": "yellow"}},
+                },
+                "result": {
+                    "success": True,
+                    "target": {"object": "key", "color": "yellow", "label": "yellow key"},
+                },
+            }
+        ]
+        # The key is explicitly requested by Find. Door and goal are mentioned
+        # only as later action targets and must not require their own Find calls.
+        task = (
+            "Find the yellow key, unlock the yellow door, open the yellow door, "
+            "and reach the green goal."
+        )
+        self.assertTrue(planner._task_success(task))
+
 
 if __name__ == "__main__":
     unittest.main()

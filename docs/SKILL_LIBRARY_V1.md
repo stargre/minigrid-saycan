@@ -99,3 +99,13 @@ completion also preserves successful historical Find evidence: an object does
 not become "never found" merely because it was picked up or the agent later
 crossed its map cell. The final environment-level acceptance test still checks
 the real terminal state independently.
+
+
+## Explicit Find-target obligations
+
+Task completion parses targets only from explicit `Find`, `Search`, or
+`Locate` clauses. Objects mentioned as operands of later actions (for example,
+`UnlockDoor(yellow door)` or `Reach(green goal)`) do not create extra Find
+obligations. This keeps natural-language task semantics aligned with the
+planner's subgoal checks while preserving evidence requirements for genuinely
+requested searches.
