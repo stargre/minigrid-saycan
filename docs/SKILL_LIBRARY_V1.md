@@ -71,3 +71,20 @@ For LLM scoring, set DASHSCOPE_API_KEY in the shell environment. Never commit AP
 ## Scope note
 
 MiniGrid DoorKey, Fetch, BlockedUnlockPickup, PutNear, GoToDoor, Crossing, and DynamicObstacles have different mechanics. The semantic skill APIs are designed to generalize, but the current SayCanGridEnv only instantiates one unlocked yellow door, one red ball, and one green goal. Reach is included to distinguish entering a walkable goal tile from merely approaching an object. Do not claim those official environment families are validated until environment adapters and randomized acceptance tests for them are added.
+
+
+## Official DoorKey acceptance
+
+Run the official-environment integration test after the custom-environment suites:
+
+    python scripts/23_official_doorkey_acceptance.py
+
+By default this evaluates MiniGrid-DoorKey-5x5-v0 and MiniGrid-DoorKey-6x6-v0
+for seeds 0-4. The runtime receives a step-only environment proxy; ground-truth
+position, door state, and terminal reward are inspected only after planning ends.
+Per-episode results are saved to `outputs/doorkey_eval/results.json`. A seed
+passes only when the planner reports completion, the environment terminates
+with positive reward at the goal, the door is open/unlocked, and the belief
+state records both unlock and open evidence. Failures are retained in the JSON
+report so the first broken skill/dependency can be diagnosed without changing
+the primitive controllers blindly.

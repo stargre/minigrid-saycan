@@ -54,6 +54,13 @@ class RelevanceTests(unittest.TestCase):
         self.assertEqual(set(scores), {c["id"] for c in calls})
         self.assertTrue(all(0 <= x["relevance"] <= 1 for x in scores.values()))
 
+    def test_reach_scores_high_for_goal_entry(self):
+        call = make_call("Reach", target={"object": "goal", "color": "green"})
+        scores = KeywordRelevanceScorer().score(
+            "Reach the green goal", [call]
+        )
+        self.assertGreaterEqual(scores[call["id"]]["relevance"], 0.9)
+
 
 if __name__ == "__main__":
     unittest.main()

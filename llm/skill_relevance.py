@@ -19,6 +19,24 @@ class KeywordRelevanceScorer:
                 score = 0.75 if any(w in text for w in ("go to", "navigate", "reach", "approach", "door")) else 0.25
             elif name == "PickUp":
                 score = 0.9 if any(w in text for w in ("pick", "take", "grab", "fetch", "key", "carry")) else 0.2
+            elif name == "Reach":
+                target = call.get("args", {}).get("target", {})
+                target_name = (
+                    target.get("object", target.get("object_name", ""))
+                    if isinstance(target, dict)
+                    else str(target)
+                )
+                movement_words = (
+                    "reach", "enter", "arrive at", "get to",
+                    "go to", "navigate to", "cross to",
+                )
+                score = (
+                    0.95
+                    if str(target_name).lower() == "goal"
+                    and "goal" in text
+                    and any(word in text for word in movement_words)
+                    else 0.15
+                )
             elif name in {"OpenDoor", "UnlockDoor"}:
                 score = 0.9 if any(w in text for w in ("door", "open", "unlock", "key")) else 0.1
             elif name == "PlaceNear":

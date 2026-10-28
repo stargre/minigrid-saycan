@@ -31,3 +31,17 @@ Every skill call returns success, status, reason, skill, and actions_executed. A
 ## Scope and claims
 
 The existing SayCanGridEnv is a custom task with a red ball, an unlocked yellow door, and a green goal. The generic skill API is designed to parameterize different objects, but official MiniGrid families such as DoorKey, Fetch, BlockedUnlockPickup, PutNear, GoToDoor, Crossing, and DynamicObstacles must each be run through acceptance tests before claiming support. See docs/SKILL_LIBRARY_V1.md for architecture, limits, and the freeze checklist.
+
+
+### Official MiniGrid DoorKey validation
+
+After the custom skill-library checks pass, run:
+
+```bash
+python scripts/23_official_doorkey_acceptance.py
+```
+
+This checks official DoorKey 5x5 and 6x6 variants over five seeds each, uses a
+step-only environment proxy during planning, and writes detailed results to
+`outputs/doorkey_eval/results.json`. The test is an integration gate, not a
+claim that the official environment has already passed.
