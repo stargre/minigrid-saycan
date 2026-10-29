@@ -169,25 +169,46 @@ class TaskDependencyResolver:
                     )
 
         if place_verbs:
-            movable = [item for item in targets if item.object_name in PICKABLE_OBJECTS]
-            destinations = [item for item in targets if item.object_name not in PICKABLE_OBJECTS]
+            # Official PutNear missions can name pickable objects as both the
+            # moved object and the destination. Preserve mention order instead
+            # of treating every pickable object as movable.
+            task_targets = parse_target_specs(task)
             relation = "near"
             for candidate in ("above", "below", "left_of", "right_of", "near"):
-                if re.search(r"\b" + candidate.replace("_of", "") + r"\b", text):
+                if re.search(r"\\b" + candidate.replace("_of", "") + r"\\b", text):
                     relation = candidate
                     break
-            if re.search(r"\b(left|right)\s+of\b", text):
-                relation = "left_of" if re.search(r"\bleft\s+of\b", text) else "right_of"
-            for obj in movable:
-                for destination in destinations:
+            if re.search(r"\\b(left|right)\\s+of\\b", text):
+                relation = "left_of" if re.search(r"\\bleft\\s+of\\b", text) else "right_of"
+
+            if len(task_targets) >= 2:
+                moving_object, destination = task_targets[0], task_targets[1]
+                if moving_object.object_name in PICKABLE_OBJECTS or moving_object.object_name == "object":
+                    # Placement requires acquiring the moved object first.
+                    calls.append(make_call("PickUp", target=moving_object.to_dict()))
                     calls.append(
                         make_call(
                             "PlaceNear",
-                            object=obj.to_dict(),
+                            object=moving_object.to_dict(),
                             target=destination.to_dict(),
                             relation=relation,
                         )
                     )
+            else:
+                # Retain the fallback for terse tasks such as "place it near
+                # the goal", where only the destination is explicit.
+                movable = [item for item in targets if item.object_name in PICKABLE_OBJECTS]
+                destinations = [item for item in targets if item.object_name not in PICKABLE_OBJECTS]
+                for obj in movable:
+                    for destination in destinations:
+                        calls.append(
+                            make_call(
+                                "PlaceNear",
+                                object=obj.to_dict(),
+                                target=destination.to_dict(),
+                                relation=relation,
+                            )
+                        )
 
         if done_intent:
             target = next((item for item in targets if item.object_name in {"door", "goal"}), None)
