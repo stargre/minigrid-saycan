@@ -67,6 +67,23 @@ class DependencyTests(unittest.TestCase):
         self.assertTrue(place)
         self.assertEqual(place[0]["args"]["relation"], "above")
 
+    def test_putnear_candidate_exposes_ordered_pickup_and_destination(self):
+        task = "put the red ball near the green box"
+        calls = TaskDependencyResolver().candidate_calls(task)
+
+        pickup_calls = [call for call in calls if call["name"] == "PickUp"]
+        self.assertEqual(len(pickup_calls), 1, pickup_calls)
+        self.assertEqual(pickup_calls[0]["args"]["target"]["object"], "ball")
+        self.assertEqual(pickup_calls[0]["args"]["target"]["color"], "red")
+
+        place_calls = [call for call in calls if call["name"] == "PlaceNear"]
+        self.assertEqual(len(place_calls), 1, place_calls)
+        self.assertEqual(place_calls[0]["args"]["object"]["object"], "ball")
+        self.assertEqual(place_calls[0]["args"]["object"]["color"], "red")
+        self.assertEqual(place_calls[0]["args"]["target"]["object"], "box")
+        self.assertEqual(place_calls[0]["args"]["target"]["color"], "green")
+        self.assertEqual(place_calls[0]["args"]["relation"], "near")
+
     def test_goal_entry_candidate_uses_reach(self):
         calls = TaskDependencyResolver().candidate_calls("Unlock the door and reach the green goal")
         self.assertTrue(any(
