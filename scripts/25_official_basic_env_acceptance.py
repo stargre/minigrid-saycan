@@ -72,8 +72,10 @@ def evaluate_after_run(env, env_id, runtime):
         return {**common, "oracle_success": success, "agent_on_goal": success}
 
     if "GoToDoor" in env_id:
-        target_pos = tuple(base.target_pos)
-        agent_pos = tuple(base.agent_pos)
+        # MiniGrid may expose coordinates as NumPy integer scalars; normalize
+        # them before placing positions into JSON result records.
+        target_pos = tuple(int(value) for value in base.target_pos)
+        agent_pos = tuple(int(value) for value in base.agent_pos)
         adjacent = bool(
             abs(agent_pos[0] - target_pos[0])
             + abs(agent_pos[1] - target_pos[1]) == 1
