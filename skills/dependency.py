@@ -70,12 +70,25 @@ class TaskDependencyResolver:
         seen = {item.key for item in targets}
 
         if belief is not None:
+            # Explicitly named colors constrain candidates of the same object
+            # type. Other observed objects remain in the belief map, but must
+            # not become selectable targets for a task such as "go to the
+            # green door" merely because a blue door is also visible.
+            explicit_colors = {}
+            for item in targets:
+                if item.color:
+                    explicit_colors.setdefault(item.object_name, set()).add(item.color)
+
             for _, cell in belief.known_map.items():
                 object_name = cell.get("object", "unknown")
                 if object_name in {"ball", "key", "door", "box", "goal"}:
+                    color = cell.get("color") if cell.get("color") != "unknown" else None
+                    requested_colors = explicit_colors.get(object_name, set())
+                    if color and requested_colors and color not in requested_colors:
+                        continue
                     spec = TargetSpec(
                         object_name=object_name,
-                        color=cell.get("color") if cell.get("color") != "unknown" else None,
+                        color=color,
                         state=None,
                     )
                     if spec.key not in seen:
