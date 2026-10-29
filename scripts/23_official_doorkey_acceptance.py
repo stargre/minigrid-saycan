@@ -164,10 +164,19 @@ def run_case(
             result.get("success") and oracle_success and required_skill_evidence
         )
         history = result.get("history", [])
-        api_error_fallbacks = sum(
-            "API error:" in str(record.get("relevance_source", ""))
-            for record in history
-        )
+        api_error_records = [
+            record for record in history
+            if "API error:" in str(record.get("relevance_source", ""))
+        ]
+        api_error_fallbacks = len(api_error_records)
+        api_error_details = [
+            {
+                "round": record.get("round"),
+                "skill": record.get("call", {}).get("name"),
+                "error": record.get("relevance_error") or "No exception detail recorded.",
+            }
+            for record in api_error_records
+        ]
 
         # Do not count silent keyword fallbacks as successful Qwen evaluations.
         passed = task_passed and not (
@@ -205,6 +214,7 @@ def run_case(
             ),
             "qwen_score_cache_entries": len(getattr(scorer, "_cache", {})),
             "qwen_api_error_fallbacks": api_error_fallbacks,
+            "qwen_api_error_details": api_error_details,
             "skill_sequence": " -> ".join(
                 item.get("call", {}).get("name", "?") for item in history
             ),
