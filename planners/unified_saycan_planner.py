@@ -1,8 +1,8 @@
 """SayCan-style planner with persistent closed-loop skill execution.
 
-The LLM (or offline scorer) selects a semantic skill. The selected deterministic
-controller is then called repeatedly until it succeeds, fails terminally, stalls,
-or reaches a bounded action budget. Primitive actions never go to the LLM.
+The LLM (or offline scorer) selects a semantic skill. Deterministic controllers
+execute primitive actions through one runtime gateway. Recoverable skill
+failures trigger replanning; hard episode/budget failures terminate the run.
 """
 import re
 
@@ -13,9 +13,6 @@ from skills.target import parse_target_specs
 from llm.skill_relevance import KeywordRelevanceScorer
 
 
-# Only verbs that explicitly request search introduce Find evidence obligations.
-# Mentioning a door or a goal in later action clauses must not silently require
-# separate Find(door)/Find(goal) calls.
 _FIND_CLAUSE = re.compile(
     r"\b(?:find|search(?:\s+for)?|locate)\s+(.*?)"
     r"(?=(?:\s*,?\s*(?:(?:and|then)\s+)?"
@@ -27,9 +24,7 @@ _FIND_CLAUSE = re.compile(
 
 
 def _explicit_find_targets(task):
-    """Parse targets in explicit Find/Search/Locate clauses only."""
-    targets = []
-    seen = set()
+    targets, seen = [], set()
     for match in _FIND_CLAUSE.finditer(str(task)):
         for spec in parse_target_specs(match.group(1)):
             if spec.key not in seen:
@@ -39,38 +34,29 @@ def _explicit_find_targets(task):
 
 
 class UnifiedSayCanPlanner:
-    # These statuses mean the selected controller still has work to do.
     PROGRESS_STATUSES = {"action_executed", "searching", "phase_complete"}
     TERMINAL_FAILURE_STATUSES = {
-        "target_not_found",
-        "exploration_exhausted",
-        "exploration_stalled",
-        "skill_timeout",
-        "skill_stalled",
-        "invalid_arguments",
-        "unsupported_relation",
-        "not_pickable",
-        "no_known_path",
-        "requires_key",
-        "gripper_not_empty",
-        "not_holding_object",
-        "placement_cell_unknown",
-        "placement_cell_occupied",
-        "pickup_not_confirmed",
-        "placement_not_confirmed",
-        "open_not_confirmed",
-        "unlock_not_confirmed",
-        "episode_ended",
+        "target_not_found", "exploration_exhausted", "exploration_stalled",
+        "skill_timeout", "skill_stalled", "invalid_arguments",
+        "unsupported_relation", "not_pickable", "no_known_path",
+        "requires_key", "gripper_not_empty", "not_holding_object",
+        "placement_cell_unknown", "placement_cell_occupied",
+        "pickup_not_confirmed", "placement_not_confirmed",
+        "open_not_confirmed", "unlock_not_confirmed", "episode_ended",
+    }
+    # These failures end the current skill, not the whole task. The planner
+    # blocks that exact call until new observations arrive and then re-scores.
+    RECOVERABLE_FAILURE_STATUSES = {
+        "target_not_found", "exploration_exhausted", "exploration_stalled",
+        "no_known_path", "requires_key", "placement_cell_unknown",
+        "placement_cell_occupied", "no_feasible_candidate",
+    }
+    HARD_STOP_STATUSES = {
+        "episode_ended", "max_actions_reached", "skill_timeout", "skill_stalled",
     }
 
-    def __init__(
-        self,
-        runtime,
-        relevance_scorer=None,
-        skill_library=None,
-        max_actions=450,
-        max_skill_actions=300,
-    ):
+    def __init__(self, runtime, relevance_scorer=None, skill_library=None,
+                 max_actions=450, max_skill_actions=300):
         self.runtime = runtime
         self.library = skill_library or SkillLibraryV1(runtime)
         self.dependencies = TaskDependencyResolver()
@@ -80,8 +66,6 @@ class UnifiedSayCanPlanner:
         self.max_skill_actions = int(max_skill_actions)
         self.history = []
         self.completed_ids = set()
-        # call id -> observation_count at which the call failed. A later new
-        # observation allows a retry; otherwise a failed call cannot spin forever.
         self.blocked_ids = {}
         self._queued = {}
         self._run_start_actions = runtime.action_count
@@ -89,103 +73,67 @@ class UnifiedSayCanPlanner:
     def _refresh_blocked(self):
         current_observation = self.runtime.belief.observation_count
         self.blocked_ids = {
-            call_id: observed_at
-            for call_id, observed_at in self.blocked_ids.items()
+            call_id: observed_at for call_id, observed_at in self.blocked_ids.items()
             if observed_at == current_observation
         }
 
     def _candidate_pool(self, task):
         self._refresh_blocked()
-
         for call in self.dependencies.candidate_calls(task, self.runtime.belief):
             self._queued.setdefault(call["id"], call)
 
         enriched = []
         for call in list(self._queued.values()):
-            call_id = call["id"]
-            if call_id in self.completed_ids or call_id in self.blocked_ids:
+            if call["id"] in self.completed_ids or call["id"] in self.blocked_ids:
                 continue
-
             assessment = self.feasibility.evaluate(call)
             if assessment["feasibility"] <= 0:
                 for prerequisite in assessment["prerequisites"]:
                     self._queued.setdefault(prerequisite["id"], prerequisite)
             enriched.append((call, assessment))
 
-        # Include newly discovered prerequisites in the same selection round.
         for call in list(self._queued.values()):
-            call_id = call["id"]
-            if (
-                call_id in self.completed_ids
-                or call_id in self.blocked_ids
-                or any(existing["id"] == call_id for existing, _ in enriched)
-            ):
+            if (call["id"] in self.completed_ids or call["id"] in self.blocked_ids
+                    or any(existing["id"] == call["id"] for existing, _ in enriched)):
                 continue
             enriched.append((call, self.feasibility.evaluate(call)))
         return enriched
 
     def _execute_skill_to_terminal(self, call):
-        """Run one selected skill controller until a terminal result."""
         start_actions = self.runtime.action_count
-        trace = []
-        result = None
-
+        trace, result = [], None
         for _ in range(self.max_skill_actions):
             if self.runtime.terminated or self.runtime.truncated:
-                result = {
-                    "success": False,
-                    "status": "episode_ended",
-                    "reason": "The episode ended while the skill was executing.",
-                    "skill": call["name"],
-                    "actions_executed": 0,
-                }
+                result = {"success": False, "status": "episode_ended",
+                          "reason": "The episode ended while the skill was executing.",
+                          "skill": call["name"], "actions_executed": 0}
                 break
-
             if self.runtime.action_count - self._run_start_actions >= self.max_actions:
-                result = {
-                    "success": False,
-                    "status": "max_actions_reached",
-                    "reason": "The global low-level action budget was exhausted.",
-                    "skill": call["name"],
-                    "actions_executed": 0,
-                }
+                result = {"success": False, "status": "max_actions_reached",
+                          "reason": "The global low-level action budget was exhausted.",
+                          "skill": call["name"], "actions_executed": 0}
                 break
 
-            before_actions = self.runtime.action_count
+            before = self.runtime.action_count
             result = self.library.execute(call)
-            after_actions = self.runtime.action_count
+            after = self.runtime.action_count
             status = result.get("status", "unknown")
-
             trace.append({
-                "controller_step": len(trace) + 1,
-                "status": status,
-                "action": result.get("action"),
-                "reason": result.get("reason", ""),
-                "actions_executed": after_actions - before_actions,
+                "controller_step": len(trace) + 1, "status": status,
+                "action": result.get("action"), "reason": result.get("reason", ""),
+                "actions_executed": after - before,
                 "estimated_position": self.runtime.belief.summary()["estimated_position"],
             })
-
             if status not in self.PROGRESS_STATUSES:
                 break
-
-            # A phase transition such as pickup -> placement can legitimately
-            # change skill state without consuming a primitive action.
-            if after_actions == before_actions and status != "phase_complete":
-                result = {
-                    **result,
-                    "success": False,
-                    "status": "skill_stalled",
-                    "reason": "The controller reported progress but executed no primitive action.",
-                }
+            if after == before and status != "phase_complete":
+                result = {**result, "success": False, "status": "skill_stalled",
+                          "reason": "Controller reported progress without a primitive action."}
                 break
         else:
-            result = {
-                "success": False,
-                "status": "skill_timeout",
-                "reason": f"Skill exceeded {self.max_skill_actions} controller steps.",
-                "skill": call["name"],
-                "actions_executed": 0,
-            }
+            result = {"success": False, "status": "skill_timeout",
+                      "reason": f"Skill exceeded {self.max_skill_actions} controller steps.",
+                      "skill": call["name"], "actions_executed": 0}
 
         result = dict(result or {})
         result["controller_steps"] = len(trace)
@@ -201,77 +149,69 @@ class UnifiedSayCanPlanner:
         if not pool:
             return {"success": False, "status": "no_feasible_candidate", "history": self.history}
 
-        calls = [call for call, _ in pool]
-        # Exactly one relevance-scoring call per high-level skill selection.
+        # Ask the LLM only about skills that the deterministic feasibility
+        # evaluator says can execute now. Infeasible calls remain available as
+        # prerequisite sources, but cannot waste tokens or dominate relevance.
+        feasible_pool = [(call, assessment) for call, assessment in pool
+                         if float(assessment["feasibility"]) > 0]
+        if not feasible_pool:
+            return {
+                "success": False, "status": "no_feasible_candidate",
+                "history": self.history,
+                "candidates": [{
+                    "id": call["id"], "name": call["name"], "relevance": 0.0,
+                    "feasibility": float(assessment["feasibility"]),
+                    "reason": assessment["reason"],
+                } for call, assessment in pool],
+            }
+
+        calls = [call for call, _ in feasible_pool]
         relevance = self.relevance.score(task, calls, self.runtime.belief.summary())
         scored = []
-
-        for call, assessment in pool:
-            item = relevance.get(
-                call["id"],
-                {"relevance": 0.0, "rationale": "No relevance score."},
-            )
+        for call, assessment in feasible_pool:
+            item = relevance.get(call["id"], {"relevance": 0.0, "rationale": "Missing relevance score."})
             rel = float(item["relevance"])
             feasible = float(assessment["feasibility"])
             scored.append({
-                "call": call,
-                "relevance": rel,
-                "feasibility": feasible,
-                "score": rel * feasible,
-                "rationale": item.get("rationale", ""),
+                "call": call, "relevance": rel, "feasibility": feasible,
+                "score": rel * feasible, "rationale": item.get("rationale", ""),
                 "feasibility_reason": assessment["reason"],
             })
 
         scored.sort(key=lambda item: (-item["score"], item["call"]["id"]))
+        # A zero relevance response must not dead-end an otherwise feasible
+        # planner. Use the strongest feasible candidate as a deterministic
+        # fallback, and make the fallback explicit in the history.
         selected = next((item for item in scored if item["score"] > 0), None)
+        zero_score_fallback = selected is None
         if selected is None:
-            return {
-                "success": False,
-                "status": "no_feasible_candidate",
-                "history": self.history,
-                "candidates": [
-                    {
-                        "id": item["call"]["id"],
-                        "name": item["call"]["name"],
-                        "relevance": item["relevance"],
-                        "feasibility": item["feasibility"],
-                        "reason": item["feasibility_reason"],
-                    }
-                    for item in scored
-                ],
-            }
+            selected = max(scored, key=lambda item: (item["feasibility"], item["call"]["id"]))
+            selected["rationale"] = (
+                str(selected.get("rationale", "")) + " [fallback: all feasible candidates had zero relevance]"
+            ).strip()
 
         call = selected["call"]
         result = self._execute_skill_to_terminal(call)
         record = {
-            "round": len(self.history) + 1,
-            "call": call,
-            "relevance": selected["relevance"],
-            "feasibility": selected["feasibility"],
-            "score": selected["score"],
+            "round": len(self.history) + 1, "call": call,
+            "relevance": selected["relevance"], "feasibility": selected["feasibility"],
+            "score": selected["score"], "zero_score_fallback": zero_score_fallback,
             "relevance_rationale": selected["rationale"],
             "feasibility_reason": selected["feasibility_reason"],
-            "result": result,
-            "belief": self.runtime.belief.summary(),
+            "result": result, "belief": self.runtime.belief.summary(),
         }
         self.history.append(record)
-
         status = result.get("status", "unknown")
         if result.get("success") and status not in self.PROGRESS_STATUSES:
             self.completed_ids.add(call["id"])
         elif status in self.TERMINAL_FAILURE_STATUSES or status == "max_actions_reached":
             self.blocked_ids[call["id"]] = self.runtime.belief.observation_count
 
-        return {
-            "success": bool(result.get("success")),
-            "status": status,
-            "record": record,
-        }
+        return {"success": bool(result.get("success")), "status": status, "record": record}
 
     def run(self, task, max_high_level_steps=100):
         self._run_start_actions = self.runtime.action_count
         status = "planner_stopped"
-
         for _ in range(int(max_high_level_steps)):
             if self.runtime.terminated or self.runtime.truncated:
                 status = "episode_ended"
@@ -282,41 +222,60 @@ class UnifiedSayCanPlanner:
 
             result = self.step(task)
             status = result.get("status", "unknown")
-            # A skill-level search failure is not necessarily a task failure.
-            # For example, Find(ball) may exhaust the currently reachable room
-            # because a closed door separates the ball from the agent. Re-score
-            # candidates so the planner can navigate to/open the door and retry.
-            if status in {
-                "no_feasible_candidate",
-                "exploration_exhausted",
-                "exploration_stalled",
-                "episode_ended",
-                "max_actions_reached",
-                "skill_timeout",
-                "skill_stalled",
-            }:
+            if status in self.HARD_STOP_STATUSES:
                 break
+            # Skill-level search failures are recoverable. step() blocks the
+            # failed call for the current observation; the next loop iteration
+            # tries other feasible candidates. A no-candidate result is only
+            # terminal if replanning cannot identify another feasible action.
+            if status == "no_feasible_candidate":
+                status = self._try_recovery_candidate(task)
+                if status == "recovery_exhausted":
+                    break
 
         success = self._task_success(task)
         return {
-            "success": success,
-            "status": "task_complete" if success else status,
+            "success": success, "status": "task_complete" if success else status,
             "high_level_steps": len(self.history),
             "low_level_actions": self.runtime.action_count - self._run_start_actions,
             "completed_calls": sorted(self.completed_ids),
-            "blocked_calls": sorted(self.blocked_ids),
-            "history": self.history,
+            "blocked_calls": sorted(self.blocked_ids), "history": self.history,
         }
 
+    def _try_recovery_candidate(self, task):
+        """Try a bounded, observation-grounded recovery action if one exists."""
+        pool = self._candidate_pool(task)
+        feasible = [(call, assessment) for call, assessment in pool
+                    if float(assessment["feasibility"]) > 0]
+        if not feasible:
+            return "recovery_exhausted"
+        # Prefer Explore when it can produce new observations; otherwise choose
+        # the feasible candidate with the highest feasibility and stable ID.
+        explore = [(c, a) for c, a in feasible if c.get("name") == "Explore"]
+        call, assessment = (explore or feasible)[0]
+        result = self._execute_skill_to_terminal(call)
+        record = {
+            "round": len(self.history) + 1, "call": call,
+            "relevance": 0.0, "feasibility": float(assessment["feasibility"]),
+            "score": 0.0, "zero_score_fallback": True,
+            "relevance_rationale": "Deterministic recovery: no feasible candidate received a positive relevance score.",
+            "feasibility_reason": assessment["reason"], "result": result,
+            "belief": self.runtime.belief.summary(),
+        }
+        self.history.append(record)
+        status = result.get("status", "unknown")
+        if result.get("success") and status not in self.PROGRESS_STATUSES:
+            self.completed_ids.add(call["id"])
+        elif status in self.TERMINAL_FAILURE_STATUSES or status == "max_actions_reached":
+            self.blocked_ids[call["id"]] = self.runtime.belief.observation_count
+        return status
+
     def _task_success(self, task):
-        """Belief-side completion check; evaluation scripts must also check GT."""
         text = str(task).lower()
         done = set(self.runtime.belief.completed_subgoals)
-
         if any(word in text for word in ("place", "put", "drop", "set down")):
             if self.runtime.belief.inventory_status != "empty" or not ({"place", "drop"} & done):
                 return False
-
         if "unlock" in text and not ({"unlock_door", "open_door"} & done):
             return False
         if "open" in text and "door" in text and not ({"open_door", "unlock_door"} & done):
@@ -324,30 +283,19 @@ class UnifiedSayCanPlanner:
         if any(word in text for word in ("pick", "take", "grab", "fetch")):
             if not ({"pick", "pickup"} & done):
                 return False
-
         goal_entry_intent = any(
-            phrase in text
-            for phrase in ("reach", "enter", "arrive at", "get to", "go to", "navigate to", "cross to")
+            phrase in text for phrase in
+            ("reach", "enter", "arrive at", "get to", "go to", "navigate to", "cross to")
         )
         if "goal" in text and goal_entry_intent:
-            if "reach" not in done and not (
-                self.runtime.terminated and self.runtime.last_reward > 0
-            ):
+            if "reach" not in done and not (self.runtime.terminated and self.runtime.last_reward > 0):
                 return False
 
-        # Finding is an evidence requirement, not a requirement that every
-        # object remain visible forever. Picked-up objects disappear from their
-        # map cells, and the agent may overwrite a door/goal cell while crossing
-        # it. Accept current map evidence, a matching held object, or a
-        # successful Find result recorded earlier in this run.
         if any(word in text for word in ("find", "search", "locate")):
-            requested = _explicit_find_targets(task)
             belief = self.runtime.belief
             held = getattr(belief, "held_object", None)
-            for spec in requested:
-                known_now = any(
-                    spec.matches(cell) for cell in belief.known_map.values()
-                )
+            for spec in _explicit_find_targets(task):
+                known_now = any(spec.matches(cell) for cell in belief.known_map.values())
                 held_now = bool(held and spec.matches(held))
                 found_earlier = any(
                     record.get("call", {}).get("name") == "Find"
@@ -357,5 +305,4 @@ class UnifiedSayCanPlanner:
                 )
                 if not (known_now or held_now or found_earlier):
                     return False
-
         return bool(self.history)
