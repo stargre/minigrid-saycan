@@ -1,0 +1,95 @@
+"""Regression tests for recoverable planner failures and scoring boundaries."""
+import unittest
+from unittest.mock import Mock
+
+from planners.unified_saycan_planner import UnifiedSayCanPlanner
+
+
+class FakeBelief:
+    observation_count = 0
+    completed_subgoals = []
+    known_map = {}
+    inventory_status = "empty"
+    held_object = None
+
+    def summary(self):
+        return {"observation_count": self.observation_count}
+
+
+class FakeRuntime:
+    def __init__(self):
+        self.action_count = 0
+        self.terminated = False
+        self.truncated = False
+        self.belief = FakeBelief()
+
+
+class PlannerRecoveryTests(unittest.TestCase):
+    def planner(self):
+        planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
+        planner.runtime = FakeRuntime()
+        planner.history = []
+        planner.completed_ids = set()
+        planner.blocked_ids = {}
+        planner._queued = {}
+        planner._run_start_actions = 0
+        planner.max_actions = 100
+        planner.max_skill_actions = 10
+        planner.relevance = Mock()
+        planner.library = Mock()
+        planner.feasibility = Mock()
+        planner.dependencies = Mock()
+        planner._task_success = Mock(return_value=False)
+        return planner
+
+    def test_exploration_exhausted_is_not_a_hard_stop(self):
+        planner = self.planner()
+        statuses = iter([
+            {"success": False, "status": "exploration_exhausted"},
+            {"success": True, "status": "task_progress"},
+        ])
+        planner.step = Mock(side_effect=lambda task: next(statuses))
+        result = planner.run("find a red ball", max_high_level_steps=2)
+        self.assertEqual(planner.step.call_count, 2)
+        self.assertEqual(result["status"], "task_progress")
+
+    def test_zero_relevance_has_deterministic_fallback(self):
+        planner = self.planner()
+        call = {"id": "Find:ball", "name": "Find", "args": {}, "description": "Find ball"}
+        planner._candidate_pool = Mock(return_value=[
+            (call, {"feasibility": 1.0, "reason": "reachable"})
+        ])
+        planner.relevance.score.return_value = {
+            "Find:ball": {"relevance": 0.0, "rationale": "low"}
+        }
+        planner._execute_skill_to_terminal = Mock(return_value={
+            "success": False, "status": "exploration_exhausted", "low_level_actions": 0
+        })
+        result = planner.step("find a ball")
+        self.assertEqual(result["status"], "exploration_exhausted")
+        self.assertTrue(result["record"]["zero_score_fallback"])
+        planner.relevance.score.assert_called_once()
+
+    def test_infeasible_candidates_are_not_sent_to_relevance_scorer(self):
+        planner = self.planner()
+        feasible = {"id": "OpenDoor:yellow:door", "name": "OpenDoor", "args": {}, "description": "Open door"}
+        infeasible = {"id": "PlaceNear:ball:goal:above", "name": "PlaceNear", "args": {}, "description": "Place ball"}
+        planner._candidate_pool = Mock(return_value=[
+            (feasible, {"feasibility": 1.0, "reason": "ready"}),
+            (infeasible, {"feasibility": 0.0, "reason": "not holding"}),
+        ])
+        planner.relevance.score.return_value = {
+            feasible["id"]: {"relevance": 0.9, "rationale": "next step"}
+        }
+        planner._execute_skill_to_terminal = Mock(return_value={
+            "success": True, "status": "task_progress", "low_level_actions": 1
+        })
+        planner.runtime.action_count = 1
+        result = planner.step("open door and place ball")
+        sent_calls = planner.relevance.score.call_args.args[1]
+        self.assertEqual([c["id"] for c in sent_calls], [feasible["id"]])
+        self.assertTrue(result["success"])
+
+
+if __name__ == "__main__":
+    unittest.main()
