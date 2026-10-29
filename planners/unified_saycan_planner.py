@@ -308,6 +308,28 @@ class UnifiedSayCanPlanner:
             phrase in text for phrase in
             ("reach", "enter", "arrive at", "get to", "go to", "navigate to", "cross to")
         )
+
+        # Official MiniGrid GoToDoor missions require a terminal environment
+        # success, not merely a successful Find/NavigateTo skill. The Done
+        # action is the environment's task-completion interaction.
+        door_navigation_only = (
+            "door" in text
+            and goal_entry_intent
+            and not any(
+                word in text
+                for word in (
+                    "open", "unlock", "pick", "take", "grab", "place", "put",
+                    "drop", "find", "search", "locate",
+                )
+            )
+        )
+        if door_navigation_only:
+            return bool(
+                self.runtime.terminated
+                and not self.runtime.truncated
+                and self.runtime.last_reward > 0
+            )
+
         if "goal" in text and goal_entry_intent:
             if "reach" not in done and not (self.runtime.terminated and self.runtime.last_reward > 0):
                 return False
