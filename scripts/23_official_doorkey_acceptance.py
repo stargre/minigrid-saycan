@@ -42,23 +42,11 @@ DEFAULT_SEEDS = (0, 1, 2, 3, 4)
 
 
 class TimedQwenSkillRelevanceScorer(QwenSkillRelevanceScorer):
-    """Collect per-request latency, including requests that raise exceptions."""
+    """Use the scorer's per-request timing; do not count score-call time twice."""
 
     def __init__(self):
         super().__init__()
-        self.api_latencies_s = []
 
-    def score(self, task, calls, belief_summary=None):
-        requests_before = self.request_count
-        started = time.perf_counter()
-        try:
-            return super().score(task, calls, belief_summary)
-        finally:
-            # request_count increments only on a cache miss, immediately before
-            # the remote call. This records latency for successful and failed
-            # remote requests, but not local cache hits.
-            if self.request_count > requests_before:
-                self.api_latencies_s.append(time.perf_counter() - started)
 
 
 class StepOnlyEnv:
