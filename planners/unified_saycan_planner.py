@@ -4,6 +4,7 @@ The LLM (or offline scorer) selects a semantic skill. Deterministic controllers
 execute primitive actions through one runtime gateway. Recoverable skill
 failures trigger replanning; hard episode/budget failures terminate the run.
 """
+import os
 import re
 
 from skills.dependency import TaskDependencyResolver
@@ -167,6 +168,7 @@ class UnifiedSayCanPlanner:
 
         calls = [call for call, _ in feasible_pool]
         relevance_source = type(self.relevance).__name__
+        relevance_error = None
         try:
             relevance = self.relevance.score(task, calls, self.runtime.belief.summary())
         except Exception as exc:
@@ -175,6 +177,11 @@ class UnifiedSayCanPlanner:
             relevance = KeywordRelevanceScorer().score(
                 task, calls, self.runtime.belief.summary()
             )
+            error_text = str(exc)
+            api_key = os.getenv("DASHSCOPE_API_KEY", "")
+            if api_key:
+                error_text = error_text.replace(api_key, "[REDACTED]")
+            relevance_error = f"{type(exc).__name__}: {error_text[:240]}"
             relevance_source = f"KeywordRelevanceScorer (API error: {type(exc).__name__})"
         scored = []
         for call, assessment in feasible_pool:
@@ -207,6 +214,7 @@ class UnifiedSayCanPlanner:
             "score": selected["score"], "zero_score_fallback": zero_score_fallback,
             "relevance_rationale": selected["rationale"],
             "relevance_source": relevance_source,
+            "relevance_error": relevance_error,
             "feasibility_reason": selected["feasibility_reason"],
             "result": result, "belief": self.runtime.belief.summary(),
         }
