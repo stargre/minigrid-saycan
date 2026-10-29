@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 import gymnasium as gym
+from minigrid.core.world_object import Ball, Box, Key  # noqa: F401
 
 from llm.skill_relevance import KeywordRelevanceScorer, QwenSkillRelevanceScorer
 from planners.unified_saycan_planner import UnifiedSayCanPlanner
