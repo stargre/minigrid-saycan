@@ -114,7 +114,7 @@ class TargetSpec:
 _TARGET_PATTERN = re.compile(
     r"\b(?:(red|blue|green|purple|yellow|grey|gray)\s+)?"
     r"(?:(locked|closed|open)\s+)?"
-    r"(balls?|spheres?|keys?|doors?|boxes?|crates?|goals?|lava|walls?|objects?)\b",
+    r"(balls?|spheres?|keys?|doors?|box(?:es)?|crates?|goals?|lava|walls?|objects?)\b",
     re.IGNORECASE,
 )
 
