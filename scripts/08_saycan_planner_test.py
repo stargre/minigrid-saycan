@@ -51,6 +51,11 @@ def main():
     print("High-level skill selections:", result["high_level_steps"])
     print("Low-level primitive actions:", result["low_level_actions"])
     print("Belief:", runtime.belief.summary())
+    if isinstance(scorer, QwenSkillRelevanceScorer):
+        print("Qwen model:", scorer.model)
+        print("Qwen API requests:", scorer.request_count)
+        print("Qwen last request latency (s):", round(scorer.last_latency_s, 3))
+        print("Qwen score cache entries:", len(scorer._cache))
     env.close()
 
     if not result["success"] or not gt_success:
