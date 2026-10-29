@@ -175,11 +175,11 @@ class TaskDependencyResolver:
             task_targets = parse_target_specs(task)
             relation = "near"
             for candidate in ("above", "below", "left_of", "right_of", "near"):
-                if re.search(r"\\b" + candidate.replace("_of", "") + r"\\b", text):
+                if re.search(r"\b" + candidate.replace("_of", "") + r"\b", text):
                     relation = candidate
                     break
-            if re.search(r"\\b(left|right)\\s+of\\b", text):
-                relation = "left_of" if re.search(r"\\bleft\\s+of\\b", text) else "right_of"
+            if re.search(r"\b(left|right)\s+of\b", text):
+                relation = "left_of" if re.search(r"\bleft\s+of\b", text) else "right_of"
 
             if len(task_targets) >= 2:
                 moving_object, destination = task_targets[0], task_targets[1]
