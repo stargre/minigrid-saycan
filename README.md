@@ -68,6 +68,7 @@ Python 3.10+ is recommended.
     python scripts/22_hidden_state_audit.py
     SEED=0 python scripts/08_saycan_planner_test.py
     python scripts/23_official_doorkey_acceptance.py
+    python scripts/25_official_basic_env_acceptance.py --scorer keyword --seeds 0 1 2
     python scripts/09_batch_evaluation.py
 
 Multi-seed regression:
