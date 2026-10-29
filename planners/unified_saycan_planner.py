@@ -166,7 +166,16 @@ class UnifiedSayCanPlanner:
             }
 
         calls = [call for call, _ in feasible_pool]
-        relevance = self.relevance.score(task, calls, self.runtime.belief.summary())
+        relevance_source = type(self.relevance).__name__
+        try:
+            relevance = self.relevance.score(task, calls, self.runtime.belief.summary())
+        except Exception as exc:
+            # Keep the task running when a remote scorer times out or returns
+            # malformed data. The fallback is recorded explicitly in history.
+            relevance = KeywordRelevanceScorer().score(
+                task, calls, self.runtime.belief.summary()
+            )
+            relevance_source = f"KeywordRelevanceScorer (API error: {type(exc).__name__})"
         scored = []
         for call, assessment in feasible_pool:
             item = relevance.get(call["id"], {"relevance": 0.0, "rationale": "Missing relevance score."})
@@ -197,6 +206,7 @@ class UnifiedSayCanPlanner:
             "relevance": selected["relevance"], "feasibility": selected["feasibility"],
             "score": selected["score"], "zero_score_fallback": zero_score_fallback,
             "relevance_rationale": selected["rationale"],
+            "relevance_source": relevance_source,
             "feasibility_reason": selected["feasibility_reason"],
             "result": result, "belief": self.runtime.belief.summary(),
         }
@@ -222,6 +232,9 @@ class UnifiedSayCanPlanner:
 
             result = self.step(task)
             status = result.get("status", "unknown")
+            if self._task_success(task):
+                status = "task_complete"
+                break
             if status in self.HARD_STOP_STATUSES:
                 break
             # Skill-level search failures are recoverable. step() blocks the
