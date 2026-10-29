@@ -106,19 +106,18 @@ class TaskDependencyResolver:
         unlock_intent = "unlock" in text or bool(
             belief is not None and belief.find_objects("door", state="locked")
         )
+        movement_intent = any(
+            phrase in text
+            for phrase in ("go to", "navigate", "reach", "approach", "enter", "arrive at", "get to", "cross to")
+        )
         # GoToDoor missions use phrases such as "go to the red door".
-        # Treat movement to a door as a task requiring the terminal Done action;
-        # merely navigating adjacent to the door does not complete that benchmark.
+        # They require the terminal Done action, not opening the door.
         done_intent = (
             any(word in text for word in ("done", "finish", "complete", "go to the door", "reach the door"))
             or (
                 movement_intent
                 and any(target.object_name == "door" for target in targets)
             )
-        )
-        movement_intent = any(
-            phrase in text
-            for phrase in ("go to", "navigate", "reach", "approach", "enter", "arrive at", "get to", "cross to")
         )
         goal_entry_intent = any(
             phrase in text
@@ -136,7 +135,12 @@ class TaskDependencyResolver:
                 pick_verbs or (unlock_intent and target.object_name == "key")
             ):
                 calls.append(make_call("PickUp", target=target.to_dict()))
-            if target.object_name == "door":
+            # Only expose door-manipulation candidates when the task asks
+            # for opening/unlocking, or observation evidence shows a locked door.
+            # A GoToDoor benchmark terminates on toggle, so opening its target is wrong.
+            if target.object_name == "door" and (
+                "open" in text or unlock_intent
+            ):
                 calls.append(make_call("OpenDoor", target=target.to_dict()))
                 calls.append(make_call("UnlockDoor", target=target.to_dict()))
             if target.object_name == "box" and move_verbs:
