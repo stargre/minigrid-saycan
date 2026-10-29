@@ -106,7 +106,16 @@ class TaskDependencyResolver:
         unlock_intent = "unlock" in text or bool(
             belief is not None and belief.find_objects("door", state="locked")
         )
-        done_intent = any(word in text for word in ("done", "finish", "complete", "go to the door", "reach the door"))
+        # GoToDoor missions use phrases such as "go to the red door".
+        # Treat movement to a door as a task requiring the terminal Done action;
+        # merely navigating adjacent to the door does not complete that benchmark.
+        done_intent = (
+            any(word in text for word in ("done", "finish", "complete", "go to the door", "reach the door"))
+            or (
+                movement_intent
+                and any(target.object_name == "door" for target in targets)
+            )
+        )
         movement_intent = any(
             phrase in text
             for phrase in ("go to", "navigate", "reach", "approach", "enter", "arrive at", "get to", "cross to")
