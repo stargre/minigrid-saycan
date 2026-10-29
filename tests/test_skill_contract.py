@@ -10,6 +10,19 @@ class TargetTests(unittest.TestCase):
         self.assertTrue(red_ball.matches({"object": "ball", "color": "red", "state": "unknown"}))
         self.assertFalse(red_ball.matches({"object": "ball", "color": "blue", "state": "unknown"}))
 
+    def test_target_parser_handles_singular_box(self):
+        singular = parse_target_specs("put the blue key near the purple box")
+        plural = parse_target_specs("put the blue key near the purple boxes")
+
+        self.assertEqual(
+            [(item.object_name, item.color) for item in singular],
+            [("key", "blue"), ("box", "purple")],
+        )
+        self.assertEqual(
+            [(item.object_name, item.color) for item in plural],
+            [("key", "blue"), ("box", "purple")],
+        )
+
     def test_target_parser(self):
         specs = parse_target_specs("Find the red ball and unlock the yellow door with a key")
         keys = {item.key for item in specs}
