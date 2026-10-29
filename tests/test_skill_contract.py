@@ -29,6 +29,18 @@ class DependencyTests(unittest.TestCase):
         self.assertTrue(any(c["name"] == "UnlockDoor" for c in calls))
         self.assertTrue(any(c["name"] == "PickUp" and c["args"]["target"]["object"] == "key" for c in calls))
 
+    def test_gotodoor_uses_done_without_opening_target(self):
+        calls = TaskDependencyResolver().candidate_calls("go to the red door")
+        self.assertTrue(any(
+            c["name"] == "Done" and c["args"]["target"]["object"] == "door"
+            for c in calls
+        ))
+        self.assertFalse(any(c["name"] in {"OpenDoor", "UnlockDoor"} for c in calls))
+
+    def test_open_door_task_exposes_door_interaction(self):
+        calls = TaskDependencyResolver().candidate_calls("open the yellow door")
+        self.assertTrue(any(c["name"] == "OpenDoor" for c in calls))
+
     def test_place_near_candidate(self):
         calls = TaskDependencyResolver().candidate_calls("Pick up the red ball and place it above the green goal")
         place = [c for c in calls if c["name"] == "PlaceNear"]
