@@ -77,6 +77,32 @@ class TaskCompletionTests(unittest.TestCase):
         # There is no historical Find result for the blue ball.
         self.assertFalse(planner._task_success("Find the blue ball"))
 
+    def test_goto_door_does_not_finish_after_navigation_alone(self):
+        planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
+        planner.runtime = FakeRuntime()
+        planner.runtime.terminated = False
+        planner.runtime.truncated = False
+        planner.runtime.last_reward = 0.0
+        planner.history = [
+            {
+                "call": {
+                    "name": "NavigateTo",
+                    "args": {"target": {"object": "door", "color": "green"}},
+                },
+                "result": {"success": True, "status": "skill_complete"},
+            }
+        ]
+        self.assertFalse(planner._task_success("go to the green door"))
+
+        # Even adjacency alone is insufficient; the environment must confirm
+        # successful termination after the required Done interaction.
+        planner.runtime.terminated = True
+        planner.runtime.last_reward = 0.0
+        self.assertFalse(planner._task_success("go to the green door"))
+
+        planner.runtime.last_reward = 0.95
+        self.assertTrue(planner._task_success("go to the green door"))
+
     def test_find_obligation_only_applies_to_explicit_search_target(self):
         planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
         planner.runtime = FakeRuntime()
