@@ -84,7 +84,7 @@ class TaskDependencyResolver:
                 if object_name in {"ball", "key", "door", "box", "goal"}:
                     color = cell.get("color") if cell.get("color") != "unknown" else None
                     requested_colors = explicit_colors.get(object_name, set())
-                    if color and requested_colors and color not in requested_colors:
+                    if requested_colors and color not in requested_colors:
                         continue
                     spec = TargetSpec(
                         object_name=object_name,
