@@ -44,6 +44,10 @@ class DependencyTests(unittest.TestCase):
                 (3, 3): {"object": "door", "color": "green", "state": "closed"},
             }
 
+            @staticmethod
+            def find_objects(*args, **kwargs):
+                return []
+
         calls = TaskDependencyResolver().candidate_calls("go to the green door", Belief())
         target_colors = {
             call.get("args", {}).get("target", {}).get("color")
