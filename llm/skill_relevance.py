@@ -5,12 +5,24 @@ import os
 import time
 from collections import OrderedDict
 
+from skills.target import TargetSpec, parse_target_specs
+
 
 class KeywordRelevanceScorer:
-    """Deterministic offline baseline; not an LLM judgement."""
+    """Deterministic offline baseline; not an LLM judgement.
+
+    In addition to verb matching, this scorer penalizes candidate arguments
+    that contradict an explicitly requested object color. This matters for
+    generated MiniGrid missions such as "go to the green door", where other
+    colored doors may already be visible in the observation-derived map.
+    """
 
     def score(self, task, calls, belief_summary=None):
         text = str(task).lower()
+        requested_by_object = {}
+        for spec in parse_target_specs(text):
+            requested_by_object.setdefault(spec.object_name, []).append(spec)
+
         result = {}
         for call in calls:
             name = call["name"]
@@ -34,12 +46,40 @@ class KeywordRelevanceScorer:
             elif name == "MoveObstacle":
                 score = 0.85 if any(w in text for w in ("move", "push", "clear", "blocked", "obstacle")) else 0.1
             elif name == "Done":
-                score = 0.8 if any(w in text for w in ("done", "finish", "complete", "go to the door")) else 0.1
+                movement_intent = any(
+                    phrase in text
+                    for phrase in ("go to", "navigate to", "reach", "approach", "arrive at", "get to")
+                )
+                score = 0.98 if ("door" in text and movement_intent) else (
+                    0.8 if any(w in text for w in ("done", "finish", "complete")) else 0.1
+                )
             else:
                 score = 0.1
-            result[call["id"]] = {"relevance": min(1.0, max(0.0, score)), "rationale": "Offline keyword fallback."}
-        return result
 
+            # Do not let a semantically relevant verb outweigh an explicitly
+            # mismatched target argument (e.g. NavigateTo(blue door) for a
+            # mission that specifically asks for the green door).
+            target = call.get("args", {}).get("target")
+            if target is not None:
+                try:
+                    target_spec = TargetSpec.from_value(target)
+                except (TypeError, ValueError):
+                    target_spec = None
+                if target_spec is not None:
+                    requested = requested_by_object.get(target_spec.object_name, [])
+                    requested_colors = {spec.color for spec in requested if spec.color}
+                    if (
+                        target_spec.color
+                        and requested_colors
+                        and target_spec.color not in requested_colors
+                    ):
+                        score = min(score, 0.01)
+
+            result[call["id"]] = {
+                "relevance": min(1.0, max(0.0, score)),
+                "rationale": "Offline keyword and target-argument relevance.",
+            }
+        return result
 
 class QwenSkillRelevanceScorer:
     """Qwen-compatible semantic scorer; requires DASHSCOPE_API_KEY."""
