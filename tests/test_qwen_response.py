@@ -1,5 +1,8 @@
 """Regression tests for Qwen relevance response parsing; no API key is needed."""
 import unittest
+from collections import OrderedDict
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 from llm.skill_relevance import QwenSkillRelevanceScorer
 
@@ -8,6 +11,12 @@ CALLS = [
     {"id": "PickUp:red:ball", "name": "PickUp"},
     {"id": "UnlockDoor:yellow:door", "name": "UnlockDoor"},
 ]
+
+
+def fake_response(content):
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+    )
 
 
 class QwenResponseParsingTests(unittest.TestCase):
@@ -59,6 +68,33 @@ class QwenResponseParsingTests(unittest.TestCase):
                     + ',"UnlockDoor:yellow:door":0.8}',
                     CALLS,
                 )
+
+    def test_malformed_response_is_retried_once_then_cached(self):
+        scorer = QwenSkillRelevanceScorer.__new__(QwenSkillRelevanceScorer)
+        scorer.model = "mock-qwen"
+        scorer.client = Mock()
+        scorer.client.chat.completions.create.side_effect = [
+            fake_response('{"PickUp:red:ball":0.9,"UnlockDoor:yellow:door":'),
+            fake_response('{"PickUp:red:ball":0.9,"UnlockDoor:yellow:door":0.8}'),
+        ]
+        scorer.last_latency_s = 0.0
+        scorer.request_count = 0
+        scorer.api_latencies_s = []
+        scorer.parse_retry_count = 0
+        scorer._cache = OrderedDict()
+        scorer.cache_size = 8
+
+        result = scorer.score("Pick up the red ball and unlock the door", CALLS, {})
+
+        self.assertEqual(result["PickUp:red:ball"]["relevance"], 0.9)
+        self.assertEqual(scorer.request_count, 2)
+        self.assertEqual(scorer.parse_retry_count, 1)
+        self.assertEqual(len(scorer.api_latencies_s), 2)
+        self.assertEqual(scorer.client.chat.completions.create.call_count, 2)
+
+        cached = scorer.score("Pick up the red ball and unlock the door", CALLS, {})
+        self.assertEqual(cached, result)
+        self.assertEqual(scorer.client.chat.completions.create.call_count, 2)
 
 
 if __name__ == "__main__":
