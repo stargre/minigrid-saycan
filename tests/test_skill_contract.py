@@ -73,6 +73,22 @@ class RelevanceTests(unittest.TestCase):
         )
         self.assertGreaterEqual(scores[call["id"]]["relevance"], 0.9)
 
+    def test_goto_door_prefers_done_for_the_requested_color(self):
+        calls = TaskDependencyResolver().candidate_calls("go to the green door")
+        wrong_color = make_call(
+            "NavigateTo", target={"object": "door", "color": "blue"}
+        )
+        calls.append(wrong_color)
+        scores = KeywordRelevanceScorer().score("go to the green door", calls)
+
+        done_green = next(
+            call for call in calls
+            if call["name"] == "Done"
+            and call["args"]["target"].get("color") == "green"
+        )
+        self.assertGreaterEqual(scores[done_green["id"]]["relevance"], 0.95)
+        self.assertLessEqual(scores[wrong_color["id"]]["relevance"], 0.01)
+
 
 if __name__ == "__main__":
     unittest.main()
