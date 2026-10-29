@@ -8,6 +8,7 @@ from collections import OrderedDict
 
 class KeywordRelevanceScorer:
     """Deterministic offline baseline; not an LLM judgement."""
+
     def score(self, task, calls, belief_summary=None):
         text = str(task).lower()
         result = {}
@@ -41,7 +42,8 @@ class KeywordRelevanceScorer:
 
 
 class QwenSkillRelevanceScorer:
-    """Low-latency Qwen-compatible adapter; requires DASHSCOPE_API_KEY."""
+    """Qwen-compatible semantic scorer; requires DASHSCOPE_API_KEY."""
+
     def __init__(self):
         from openai import OpenAI
         key = os.getenv("DASHSCOPE_API_KEY")
@@ -58,6 +60,8 @@ class QwenSkillRelevanceScorer:
         )
         self.last_latency_s = 0.0
         self.request_count = 0
+        self.api_latencies_s = []
+        self.parse_retry_count = 0
         self._cache = OrderedDict()
         self.cache_size = int(os.getenv("QWEN_SCORE_CACHE_SIZE", "64"))
 
@@ -65,35 +69,83 @@ class QwenSkillRelevanceScorer:
     def _target_progress(call, task, state):
         name = call.get("name", "")
         done = set(state.get("completed_subgoals", []))
-        if name in {"PickUp", "PlaceNear", "OpenDoor", "UnlockDoor", "Reach", "Done"}:
-            if name == "PickUp" and ({"pick", "pickup"} & done):
-                return "already completed or possibly redundant"
-            if name == "OpenDoor" and ({"open_door", "unlock_door"} & done):
-                return "already completed or possibly redundant"
-            if name == "PlaceNear" and ({"place", "drop"} & done):
-                return "already completed or possibly redundant"
-        held = state.get("held_object")
-        if name == "PlaceNear" and not held:
+        if name == "PickUp" and ({"pick", "pickup"} & done):
+            return "already completed or possibly redundant"
+        if name == "OpenDoor" and ({"open_door", "unlock_door"} & done):
+            return "already completed or possibly redundant"
+        if name == "PlaceNear" and ({"place", "drop"} & done):
+            return "already completed or possibly redundant"
+        if name == "PlaceNear" and not state.get("held_object"):
             return "requires holding the requested object; feasibility is checked separately"
         return "consider whether this advances an unfinished task stage"
+
+    @staticmethod
+    def _parse_score_response(content, calls):
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("Qwen returned an empty response.")
+        text = content.strip()
+        fence = chr(96) * 3
+        if text.startswith(fence):
+            lines = text.splitlines()
+            if lines and lines[0].lstrip().startswith(fence):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == fence:
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            raise ValueError("Qwen scoring response must be a JSON object.")
+        expected = {call["id"] for call in calls}
+        actual = set(data)
+        if expected != actual:
+            raise ValueError(f"Qwen candidate IDs mismatch; missing={sorted(expected-actual)}, unexpected={sorted(actual-expected)}")
+        result = {}
+        for call in calls:
+            cid = call["id"]
+            item = data[cid]
+            raw = item.get("relevance") if isinstance(item, dict) else item
+            rationale = str(item.get("rationale", "Qwen semantic relevance."))[:160] if isinstance(item, dict) else "Qwen semantic relevance."
+            if isinstance(raw, bool):
+                raise ValueError(f"Invalid relevance score for {cid}: boolean")
+            try:
+                value = float(raw)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Invalid relevance score for {cid}: {raw!r}") from exc
+            if not math.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError(f"Invalid relevance score for {cid}: {value}")
+            result[cid] = {"relevance": value, "rationale": rationale}
+        return result
+
+    def _request_content(self, messages, max_tokens):
+        started = time.perf_counter()
+        self.request_count += 1
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model, messages=messages,
+                response_format={"type": "json_object"},
+                temperature=0, max_tokens=max_tokens,
+            )
+            choices = getattr(response, "choices", None)
+            if not choices:
+                return None
+            return getattr(getattr(choices[0], "message", None), "content", None)
+        finally:
+            elapsed = time.perf_counter() - started
+            self.last_latency_s = elapsed
+            self.api_latencies_s.append(elapsed)
 
     def score(self, task, calls, belief_summary=None):
         state = belief_summary or {}
         compact_calls = [{
-            "id": c["id"], "skill": c["name"],
-            "arguments": c.get("args", {}),
+            "id": c["id"], "skill": c["name"], "arguments": c.get("args", {}),
             "description": c.get("description", ""),
             "progress_hint": self._target_progress(c, task, state),
         } for c in calls]
         payload = {
             "task": str(task),
-            "progress": {
-                "completed_subgoals": state.get("completed_subgoals", []),
-                "held_object": state.get("held_object"),
-                "inventory_status": state.get("inventory_status"),
-                "estimated_position": state.get("estimated_position"),
-                "known_cell_count": state.get("known_cell_count"),
-            },
+            "progress": {k: state.get(k) for k in (
+                "completed_subgoals", "held_object", "inventory_status",
+                "estimated_position", "known_cell_count")},
             "candidates": compact_calls,
         }
         cache_key = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
@@ -103,40 +155,36 @@ class QwenSkillRelevanceScorer:
 
         system_prompt = (
             "You are the semantic-relevance component of a SayCan-style planner. "
-            "Choose relevance for the NEXT skill, not general relevance to the whole task. "
-            "Score only semantic fit and progress toward the earliest unfinished task stage; "
-            "physical feasibility is computed separately. Prefer actions that advance unfinished "
-            "stages, avoid repeating completed actions, and use candidate arguments to distinguish "
-            "targets. Use only the supplied task/state; never infer hidden positions. "
-            "Return compact JSON: {candidate_id: {relevance: 0..1, rationale: <=8 words}}. "
-            "Include every candidate ID exactly once."
+            "Score each candidate for the NEXT skill, not general relevance to the whole task. "
+            "Score semantic fit and progress toward the earliest unfinished task stage; "
+            "physical feasibility is computed separately. Prefer advancing unfinished stages, "
+            "avoid repeating completed actions, and use arguments to distinguish targets. "
+            "Use only supplied task/state; never infer hidden positions. Return ONLY a compact "
+            "JSON object mapping every candidate ID to a numeric relevance score from 0 to 1. "
+            "Include every ID exactly once. No rationale, markdown, or surrounding text."
         )
-        start = time.monotonic()
-        self.request_count += 1
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0,
-            max_tokens=min(600, max(120, 28 * len(calls))),
-        )
-        self.last_latency_s = time.monotonic() - start
-        content = response.choices[0].message.content
-        if not content:
-            raise RuntimeError("Qwen returned an empty response.")
-        data = json.loads(content)
-        result = {}
-        for call in calls:
-            item = data.get(call["id"])
-            if not isinstance(item, dict):
-                raise ValueError(f"Qwen response is missing candidate {call['id']}")
-            value = float(item.get("relevance"))
-            if not math.isfinite(value) or not 0 <= value <= 1:
-                raise ValueError(f"Invalid relevance score for {call['id']}: {value}")
-            result[call["id"]] = {"relevance": value, "rationale": str(item.get("rationale", ""))[:160]}
+        user_message = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}]
+        try:
+            result = self._parse_score_response(
+                self._request_content(messages, min(1200, max(256, 64 * len(calls)))), calls
+            )
+        except (json.JSONDecodeError, TypeError, ValueError) as first_error:
+            self.parse_retry_count += 1
+            retry_messages = [
+                {"role": "system", "content": system_prompt + " Previous output was invalid/incomplete. Return a complete valid JSON object now, numeric scores only."},
+                {"role": "user", "content": user_message},
+            ]
+            try:
+                result = self._parse_score_response(
+                    self._request_content(retry_messages, min(1600, max(512, 96 * len(calls)))), calls
+                )
+            except (json.JSONDecodeError, TypeError, ValueError) as retry_error:
+                raise ValueError(
+                    "Qwen returned invalid scoring JSON after one format retry. "
+                    f"First: {type(first_error).__name__}: {str(first_error)[:120]}; "
+                    f"retry: {type(retry_error).__name__}: {str(retry_error)[:160]}"
+                ) from retry_error
 
         self._cache[cache_key] = result
         self._cache.move_to_end(cache_key)
