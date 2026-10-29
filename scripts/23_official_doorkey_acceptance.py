@@ -213,6 +213,7 @@ def run_case(
                 else None
             ),
             "qwen_score_cache_entries": len(getattr(scorer, "_cache", {})),
+            "qwen_parse_retries": getattr(scorer, "parse_retry_count", 0),
             "qwen_api_error_fallbacks": api_error_fallbacks,
             "qwen_api_error_details": api_error_details,
             "skill_sequence": " -> ".join(
