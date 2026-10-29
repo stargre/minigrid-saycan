@@ -37,6 +37,22 @@ class DependencyTests(unittest.TestCase):
         ))
         self.assertFalse(any(c["name"] in {"OpenDoor", "UnlockDoor"} for c in calls))
 
+    def test_explicit_door_color_excludes_other_observed_door_colors(self):
+        class Belief:
+            known_map = {
+                (1, 1): {"object": "door", "color": "blue", "state": "closed"},
+                (3, 3): {"object": "door", "color": "green", "state": "closed"},
+            }
+
+        calls = TaskDependencyResolver().candidate_calls("go to the green door", Belief())
+        target_colors = {
+            call.get("args", {}).get("target", {}).get("color")
+            for call in calls
+            if call.get("args", {}).get("target", {}).get("object") == "door"
+        }
+        self.assertIn("green", target_colors)
+        self.assertNotIn("blue", target_colors)
+
     def test_open_door_task_exposes_door_interaction(self):
         calls = TaskDependencyResolver().candidate_calls("open the yellow door")
         self.assertTrue(any(c["name"] == "OpenDoor" for c in calls))
