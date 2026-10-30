@@ -134,6 +134,45 @@ class TaskCompletionTests(unittest.TestCase):
         self.assertFalse(planner._task_success("go get a grey key"))
         self.assertTrue(planner._task_success("go get a blue ball"))
 
+    def test_pickup_and_place_task_completes_after_object_is_released(self):
+        class PlacementBelief:
+            known_map = {}
+            inventory_status = "empty"
+            held_object = None
+            completed_subgoals = ["pick", "pickup", "place"]
+
+        class PlacementRuntime:
+            belief = PlacementBelief()
+            terminated = False
+            truncated = False
+            last_reward = 0.0
+
+        planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
+        planner.runtime = PlacementRuntime()
+        planner.history = [
+            {
+                "call": {
+                    "name": "PickUp",
+                    "args": {"target": {"object": "ball", "color": "red"}},
+                },
+                "result": {"success": True, "status": "skill_complete"},
+            },
+            {
+                "call": {
+                    "name": "PlaceNear",
+                    "args": {
+                        "object": {"object": "ball", "color": "red"},
+                        "target": {"object": "box", "color": "green"},
+                    },
+                },
+                "result": {"success": True, "status": "skill_complete"},
+            },
+        ]
+
+        self.assertTrue(
+            planner._task_success("pick up the red ball and place it near the green box")
+        )
+
     def test_get_to_door_is_not_misclassified_as_object_pickup(self):
         planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
         planner.runtime = FakeRuntime()
