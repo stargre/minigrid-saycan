@@ -2,6 +2,7 @@ import unittest
 from skills.target import TargetSpec, parse_target_specs, relation_offset
 from skills.dependency import TaskDependencyResolver, make_call
 from llm.skill_relevance import KeywordRelevanceScorer
+from skills.feasibility import SkillFeasibilityEvaluator
 
 
 class TargetTests(unittest.TestCase):
@@ -107,6 +108,32 @@ class DependencyTests(unittest.TestCase):
             c["name"] == "NavigateTo" and c["args"]["target"]["object"] == "goal"
             for c in calls
         ))
+
+
+class FeasibilityTests(unittest.TestCase):
+    def test_find_is_infeasible_when_target_is_held(self):
+        class Belief:
+            inventory_status = "yellow_ball"
+            held_object = {"object": "ball", "color": "yellow", "state": "held"}
+            known_map = {}
+            agent_pos = (0, 0)
+            agent_dir = 0
+
+            @staticmethod
+            def cell_at(_position):
+                return None
+
+        class Runtime:
+            belief = Belief()
+            terminated = False
+            truncated = False
+
+        evaluator = SkillFeasibilityEvaluator(Runtime())
+        call = make_call("Find", target={"object": "ball", "color": "yellow"})
+        assessment = evaluator.evaluate(call)
+
+        self.assertEqual(assessment["feasibility"], 0.0)
+        self.assertIn("already held", assessment["reason"])
 
 
 class RelevanceTests(unittest.TestCase):
