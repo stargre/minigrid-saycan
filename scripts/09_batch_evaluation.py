@@ -108,12 +108,12 @@ def ground_truth_success(env, task_id, task):
     door = base.grid.get(*base.door_pos)
 
     conditional_door = _is_conditional_door_instruction(task)
-    # The ball is generated on either side of the wall. For T5, opening the
-    # door is necessary only when the ball starts on the opposite (left) side.
-    door_required = (
-        ("open" in task.lower() or "unlock" in task.lower())
-        and (not conditional_door or getattr(base, "ball_side", None) == "left")
-    )
+    # In this fixed benchmark layout, the agent starts left of the central
+    # wall while the green goal is always on the right. Therefore the yellow
+    # door is physically required even when the instruction says "if needed";
+    # the ball's random side does not change this topological requirement.
+    door_instruction = "open" in task.lower() or "unlock" in task.lower()
+    door_required = bool(door_instruction)
     door_open = bool(getattr(door, "is_open", False))
     ball_at_target = bool(isinstance(placed, Ball) and placed.color == "red")
     released = getattr(base, "carrying", None) is None
