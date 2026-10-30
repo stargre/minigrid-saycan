@@ -307,7 +307,7 @@ class UnifiedSayCanPlanner:
             if spec.object_name in PICKABLE_OBJECTS
         ]
         get_pickable_intent = bool(
-            re.search(r"\\bget\\s+(?:a|an|the)\\s+", text)
+            re.search(r"\bget\s+(?:a|an|the)\s+", text)
             and pickup_targets
         )
         acquisition_intent = (
