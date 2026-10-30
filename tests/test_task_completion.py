@@ -235,6 +235,62 @@ class TaskCompletionTests(unittest.TestCase):
         planner.runtime.last_reward = 0.95
         self.assertTrue(planner._task_success("go to the green door"))
 
+    def test_gotoobject_requires_positive_terminal_done_not_find_or_navigation(self):
+        class ObjectBelief:
+            inventory_status = "empty"
+            held_object = None
+            completed_subgoals = []
+
+        class ObjectRuntime:
+            belief = ObjectBelief()
+            terminated = False
+            truncated = False
+            last_reward = 0.0
+
+        planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
+        planner.runtime = ObjectRuntime()
+        planner.history = [
+            {
+                "call": {
+                    "name": "Find",
+                    "args": {"target": {"object": "key", "color": "red"}},
+                },
+                "result": {"success": True, "status": "target_found"},
+            }
+        ]
+        task = "go to the red key"
+        self.assertFalse(planner._task_success(task))
+
+        planner.history = [
+            {
+                "call": {
+                    "name": "NavigateTo",
+                    "args": {"target": {"object": "key", "color": "red"}},
+                },
+                "result": {"success": True, "status": "skill_complete"},
+            }
+        ]
+        self.assertFalse(planner._task_success(task))
+
+        # Done at the wrong location terminates the official environment with
+        # zero reward; that must not be accepted as task completion.
+        planner.history.append({
+            "call": {
+                "name": "Done",
+                "args": {"target": {"object": "key", "color": "red"}},
+            },
+            "result": {"success": True, "status": "done_issued"},
+        })
+        planner.runtime.terminated = True
+        planner.runtime.last_reward = 0.0
+        self.assertFalse(planner._task_success(task))
+
+        planner.runtime.last_reward = 0.95
+        self.assertTrue(planner._task_success(task))
+
+        planner.runtime.truncated = True
+        self.assertFalse(planner._task_success(task))
+
     def test_find_obligation_only_applies_to_explicit_search_target(self):
         planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
         planner.runtime = FakeRuntime()
