@@ -310,6 +310,9 @@ class UnifiedSayCanPlanner:
             re.search(r"\bget\s+(?:a|an|the)\s+", text)
             and pickup_targets
         )
+        release_intent = any(
+            word in text for word in ("place", "put", "drop", "set down")
+        )
         acquisition_intent = (
             any(word in text for word in ("pick", "take", "grab", "fetch"))
             or get_pickable_intent
@@ -318,8 +321,10 @@ class UnifiedSayCanPlanner:
             if not ({"pick", "pickup"} & done):
                 return False
             held = getattr(self.runtime.belief, "held_object", None)
-            if pickup_targets and not any(
-                spec.matches(held) for spec in pickup_targets
+            if (
+                pickup_targets
+                and not release_intent
+                and not any(spec.matches(held) for spec in pickup_targets)
             ):
                 return False
         goal_entry_intent = any(
