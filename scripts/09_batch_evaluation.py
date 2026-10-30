@@ -351,8 +351,9 @@ def main():
     selected_tasks = [item for item in TASKS if item[0] in args.tasks]
 
     rows, details = [], []
-    for index, (task_id, task) in enumerate(selected_tasks):
-        seed = args.seed_start + index
+    for task_id, task in selected_tasks:
+        task_index = int(task_id[1:]) - 1
+        seed = args.seed_start + task_index
         row, result = run_one(task_id, task, seed, scorer, output_dir)
         rows.append(row)
         details.append({"metrics": row, "result": result})
