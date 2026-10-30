@@ -322,7 +322,7 @@ def run_case(env_id, seed, output_root, max_actions, max_high_level_steps,
             encoding="utf-8",
         )
         (case_dir / "skill_trace.json").write_text(
-            json.dumps(skill_trace, ensure_ascii=False, indent=2),
+            json.dumps(json_safe(skill_trace), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         return record
