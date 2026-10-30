@@ -132,6 +132,35 @@ class PlannerRecoveryTests(unittest.TestCase):
         self.assertEqual(result["record"]["call"]["name"], "Explore")
         self.assertFalse(result["record"]["terminal_priority"])
 
+    def test_compound_task_does_not_force_intermediate_done_priority(self):
+        planner = self.planner()
+        explore = {
+            "id": "Explore", "name": "Explore", "args": {},
+            "description": "Explore the environment",
+        }
+        done = {
+            "id": "Done:door:yellow", "name": "Done",
+            "args": {"target": {"object": "door", "color": "yellow"}},
+            "description": "Finish at the yellow door",
+        }
+        planner._candidate_pool = Mock(return_value=[
+            (explore, {"feasibility": 1.0, "reason": "frontier remains"}),
+            (done, {"feasibility": 1.0, "reason": "door is adjacent"}),
+        ])
+        planner.relevance.score.return_value = {
+            explore["id"]: {"relevance": 1.0, "rationale": "Continue the task"},
+            done["id"]: {"relevance": 0.0, "rationale": "Intermediate interaction"},
+        }
+        planner._execute_skill_to_terminal = Mock(return_value={
+            "success": True, "status": "action_executed", "low_level_actions": 1,
+        })
+
+        result = planner.step("unlock the yellow door and reach the green goal")
+
+        planner._execute_skill_to_terminal.assert_called_once_with(explore)
+        self.assertEqual(result["record"]["call"]["name"], "Explore")
+        self.assertFalse(result["record"]["terminal_priority"])
+
     def test_infeasible_candidates_are_not_sent_to_relevance_scorer(self):
         planner = self.planner()
         feasible = {"id": "OpenDoor:yellow:door", "name": "OpenDoor", "args": {}, "description": "Open door"}
