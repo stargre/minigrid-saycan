@@ -177,19 +177,10 @@ class BeliefState:
         self.agent_dir = int(next_obs["direction"])
         self._integrate_observation(next_obs)
         self.last_obs = next_obs
-        self._check_placement()
 
     def _mark_completed(self, name):
         if name not in self.completed_subgoals:
             self.completed_subgoals.append(name)
-
-    def _check_placement(self):
-        goals = self.find_objects("goal", color="green")
-        for goal_pos, _ in goals:
-            target = self.known_map.get((goal_pos[0], goal_pos[1] - 1))
-            if target and target.get("object") == "ball" and target.get("color") == "red":
-                self._mark_completed("place")
-                return
 
     def find_objects(self, object_name, color=None, state=None):
         matches = []

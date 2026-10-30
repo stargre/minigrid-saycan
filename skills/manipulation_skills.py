@@ -2,7 +2,8 @@
 from minigrid.core.actions import Actions
 from perception.belief_state import DIRECTIONS
 from skills.base import UnifiedSkill, _dist
-from skills.target import PICKABLE_OBJECTS, TargetSpec, canonical_object, relation_offset
+from skills.target import PICKABLE_OBJECTS, TargetSpec, canonical_object
+from skills.placement import select_placement
 
 
 class PickUpSkill(UnifiedSkill):
@@ -43,30 +44,24 @@ class PlaceNearSkill(UnifiedSkill):
         held = getattr(self.belief, "held_object", None)
         if not held or not obj_spec.matches(held):
             return self._result(False, "not_holding_object", "Pick up the requested object before placing it.")
-        dest_pos, _ = self._nearest(target)
-        if dest_pos is None:
+        destinations = self._positions(target)
+        if not destinations:
             return self._result(False, "target_not_found", "Find the destination object before placing.")
         relation_norm = str(relation).strip().lower().replace("-", "_")
-        offset = relation_offset(relation_norm)
-        if offset is None and relation_norm in {"near", "adjacent", "nearby", "beside", "next_to"}:
-            options = [(dest_pos[0] + dx, dest_pos[1] + dy) for dx, dy in DIRECTIONS]
-            candidates = [
-                pos for pos in options
-                if self.belief.cell_at(pos) is not None
-                and self.belief.cell_at(pos).get("object") in {"empty", "floor"}
-            ]
-            if not candidates:
-                return self._result(False, "placement_cell_unknown", "No known empty cell adjacent to the destination.")
-            target_pos = min(candidates, key=lambda p: _dist(p, self.belief.agent_pos))
-        elif offset is not None:
-            target_pos = (dest_pos[0] + offset[0], dest_pos[1] + offset[1])
-        else:
-            return self._result(False, "unsupported_relation", f"Unsupported relation: {relation}")
-        cell = self.belief.cell_at(target_pos)
-        if cell is None:
-            return self._result(False, "placement_cell_unknown", "The relation-derived placement cell has not been observed.")
-        if cell.get("object") not in {"empty", "floor"}:
-            return self._result(False, "placement_cell_occupied", "The placement cell is not known to be empty.")
+        dest_pos, target_pos, placement_error = select_placement(
+            self.belief,
+            self.navigator,
+            [pos for pos, _ in destinations],
+            relation_norm,
+        )
+        if placement_error == "unsupported_relation":
+            return self._result(False, placement_error, f"Unsupported relation: {relation}")
+        if placement_error == "placement_cell_unknown":
+            return self._result(False, placement_error, "No known empty placement cell is available for the requested relation.")
+        if placement_error == "placement_cell_occupied":
+            return self._result(False, placement_error, "The relation-derived placement cell is occupied.")
+        if placement_error == "no_known_path":
+            return self._result(False, placement_error, "Known empty placement cells have no reachable adjacent approach.")
         result = self.navigator.step_to_adjacent(target_pos)
         if result.get("status") != "target_adjacent":
             result["skill"] = self.name
@@ -75,6 +70,10 @@ class PlaceNearSkill(UnifiedSkill):
         after = self.belief.cell_at(target_pos)
         held_after = getattr(self.belief, "held_object", None)
         success = bool(after and obj_spec.matches(after) and not held_after)
+        if success:
+            # Only the skill can confirm that the object occupies the
+            # relation-derived cell after release; a generic Drop is not enough.
+            self.belief._mark_completed("place")
         return self._result(
             success, "skill_complete" if success else "placement_not_confirmed",
             "Placement and object release confirmed by observation." if success else "The target relation has not been confirmed by observation.",

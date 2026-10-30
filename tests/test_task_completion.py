@@ -134,6 +134,26 @@ class TaskCompletionTests(unittest.TestCase):
         self.assertFalse(planner._task_success("go get a grey key"))
         self.assertTrue(planner._task_success("go get a blue ball"))
 
+    def test_drop_without_verified_relation_does_not_complete_placement(self):
+        class PlacementBelief:
+            inventory_status = "empty"
+            held_object = None
+            completed_subgoals = ["pick", "pickup", "drop"]
+
+        class PlacementRuntime:
+            belief = PlacementBelief()
+            terminated = False
+            truncated = False
+            last_reward = 0.0
+
+        planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
+        planner.runtime = PlacementRuntime()
+        planner.history = []
+
+        self.assertFalse(
+            planner._task_success("pick up the red ball and place it near the green box")
+        )
+
     def test_pickup_and_place_task_completes_after_object_is_released(self):
         class PlacementBelief:
             known_map = {}

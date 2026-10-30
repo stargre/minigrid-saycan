@@ -417,7 +417,9 @@ class UnifiedSayCanPlanner:
         text = str(task).lower()
         done = set(self.runtime.belief.completed_subgoals)
         if any(word in text for word in ("place", "put", "drop", "set down")):
-            if self.runtime.belief.inventory_status != "empty" or not ({"place", "drop"} & done):
+            # A generic Drop only confirms release. PlaceNear marks "place"
+            # after the requested relation-derived cell is observation-verified.
+            if self.runtime.belief.inventory_status != "empty" or "place" not in done:
                 return False
         # Conditional instructions such as "open the door if needed" do not
         # impose an unconditional door-open subgoal. If opening is actually

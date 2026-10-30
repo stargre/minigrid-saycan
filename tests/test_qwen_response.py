@@ -69,6 +69,45 @@ class QwenResponseParsingTests(unittest.TestCase):
                     CALLS,
                 )
 
+    def test_place_near_progress_does_not_treat_a_held_object_as_already_placed(self):
+        call = {
+            "id": "PlaceNear:red:ball:green:box:near",
+            "name": "PlaceNear",
+            "args": {
+                "object": {"object": "ball", "color": "red"},
+                "target": {"object": "box", "color": "green"},
+                "relation": "near",
+            },
+        }
+        state = {
+            "held_object": {"object": "ball", "color": "red", "state": "held"},
+            "completed_subgoals": ["pick", "pickup", "drop", "place"],
+        }
+
+        hint = QwenSkillRelevanceScorer._target_progress(call, "place the red ball near the green box", state)
+
+        self.assertIn("currently held", hint)
+        self.assertNotIn("already completed", hint)
+
+    def test_place_near_progress_requires_the_requested_object(self):
+        call = {
+            "id": "PlaceNear:red:ball:green:box:near",
+            "name": "PlaceNear",
+            "args": {
+                "object": {"object": "ball", "color": "red"},
+                "target": {"object": "box", "color": "green"},
+                "relation": "near",
+            },
+        }
+        state = {
+            "held_object": {"object": "key", "color": "red", "state": "held"},
+            "completed_subgoals": ["pick", "pickup"],
+        }
+
+        hint = QwenSkillRelevanceScorer._target_progress(call, "place the red ball near the green box", state)
+
+        self.assertIn("requires holding the requested object", hint)
+
     def test_malformed_response_is_retried_once_then_cached(self):
         scorer = QwenSkillRelevanceScorer.__new__(QwenSkillRelevanceScorer)
         scorer.model = "mock-qwen"

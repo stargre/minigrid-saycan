@@ -113,10 +113,16 @@ class QwenSkillRelevanceScorer:
             return "already completed or possibly redundant"
         if name == "OpenDoor" and ({"open_door", "unlock_door"} & done):
             return "already completed or possibly redundant"
-        if name == "PlaceNear" and ({"place", "drop"} & done):
-            return "already completed or possibly redundant"
-        if name == "PlaceNear" and not state.get("held_object"):
-            return "requires holding the requested object; feasibility is checked separately"
+        if name == "PlaceNear":
+            requested_object = call.get("args", {}).get("object")
+            held_object = state.get("held_object")
+            try:
+                requested_is_held = TargetSpec.from_value(requested_object).matches(held_object)
+            except (TypeError, ValueError):
+                requested_is_held = False
+            if not requested_is_held:
+                return "requires holding the requested object; feasibility is checked separately"
+            return "the requested object is currently held; assess whether its requested placement is still pending"
         return "consider whether this advances an unfinished task stage"
 
     @staticmethod

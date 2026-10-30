@@ -1,6 +1,7 @@
 """Deterministic feasibility evaluator based only on BeliefState."""
 from skills.navigation import ObservationNavigator
-from skills.target import PICKABLE_OBJECTS, TargetSpec, relation_offset
+from skills.target import PICKABLE_OBJECTS, TargetSpec
+from skills.placement import select_placement
 from skills.dependency import TaskDependencyResolver, make_call
 from perception.belief_state import DIRECTIONS, is_walkable
 
@@ -126,16 +127,22 @@ class SkillFeasibilityEvaluator:
                 if not dests:
                     reason = "Find the destination first."
                 else:
-                    relation = str(args.get("relation", "near")).lower()
-                    offset = relation_offset(relation)
-                    dest_pos = dests[0][0]
-                    if offset is None and relation not in {"near", "adjacent", "nearby", "beside", "next_to"}:
-                        reason = "Unsupported placement relation."
-                    else:
-                        candidates = [(dest_pos[0]+offset[0], dest_pos[1]+offset[1])] if offset is not None else [(dest_pos[0]+dx, dest_pos[1]+dy) for dx,dy in DIRECTIONS]
-                        empty = [p for p in candidates if self.belief.cell_at(p) is not None and self.belief.cell_at(p).get("object") in {"empty","floor"}]
-                        score = float(any(self._reachable_adjacent(p) for p in empty))
-                        reason = "A known empty placement cell is reachable." if score else "No known reachable empty placement cell."
+                    _, _, placement_error = select_placement(
+                        self.belief,
+                        self.navigator,
+                        [pos for pos, _ in dests],
+                        args.get("relation", "near"),
+                    )
+                    score = float(placement_error is None)
+                    reason = (
+                        "A known empty placement cell with a reachable adjacent approach exists."
+                        if score else {
+                            "unsupported_relation": "Unsupported placement relation.",
+                            "placement_cell_unknown": "No known empty placement cell is available.",
+                            "placement_cell_occupied": "The relation-derived placement cell is occupied.",
+                            "no_known_path": "Known empty placement cells have no reachable adjacent approach.",
+                        }.get(placement_error, "Placement is not currently feasible.")
+                    )
         elif name == "MoveObstacle":
             obstacle, destination = args.get("target"), args.get("destination")
             if not positions:
