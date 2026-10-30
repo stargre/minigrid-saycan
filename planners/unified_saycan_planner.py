@@ -142,6 +142,37 @@ class UnifiedSayCanPlanner:
         result["execution_trace"] = trace
         return result
 
+    @staticmethod
+    def _is_navigation_only_done_task(task):
+        """Limit forced Done priority to navigation-only benchmark tasks."""
+        text = str(task).lower()
+        movement_intent = any(
+            phrase in text
+            for phrase in (
+                "reach", "enter", "arrive at", "get to", "go to",
+                "navigate to", "cross to",
+            )
+        )
+        if not movement_intent:
+            return False
+
+        # Composite tasks must retain planner flexibility: an intermediate
+        # Done candidate must not pre-empt opening/unlocking, acquisition,
+        # placement, or an explicitly requested search.
+        if any(
+            word in text
+            for word in (
+                "open", "unlock", "pick", "take", "grab", "carry", "fetch",
+                "place", "put", "drop", "set down", "find", "search", "locate",
+            )
+        ) or re.search(r"\\bget\\s+(?:a|an|the|it|them)\\b", text):
+            return False
+
+        return any(
+            spec.object_name == "door" or spec.object_name in PICKABLE_OBJECTS
+            for spec in parse_target_specs(task)
+        )
+
     def step(self, task):
         if self.runtime.action_count - self._run_start_actions >= self.max_actions:
             return {"success": False, "status": "max_actions_reached", "history": self.history}
@@ -201,9 +232,13 @@ class UnifiedSayCanPlanner:
         # or another skill that could move the agent away from the target.
         # DoneSkill still performs the final orientation check, and task
         # success is verified separately from the environment's terminal reward.
-        terminal = next(
-            (item for item in scored if item["call"].get("name") == "Done"),
-            None,
+        terminal = (
+            next(
+                (item for item in scored if item["call"].get("name") == "Done"),
+                None,
+            )
+            if self._is_navigation_only_done_task(task)
+            else None
         )
         terminal_priority = terminal is not None
         if terminal_priority:
