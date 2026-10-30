@@ -337,7 +337,7 @@ def run_case(env_id, seed, output_root, max_actions, max_high_level_steps,
                 )
             except Exception:
                 pass
-        return json_safe({
+        failure_record = json_safe({
             "env_id": env_id,
             "seed": int(seed),
             "scorer": "QwenSkillRelevanceScorer",
@@ -350,7 +350,14 @@ def run_case(env_id, seed, output_root, max_actions, max_high_level_steps,
             "recorded_frames": len(frames),
             "trajectory_gif": str(gif_path) if gif_path else None,
             "final_frame": str(png_path) if png_path else None,
+            "summary_json": str(case_dir / "summary.json"),
         })
+        (case_dir / "summary.json").write_text(
+            json.dumps(failure_record, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (case_dir / "skill_trace.json").write_text("[]", encoding="utf-8")
+        return failure_record
     finally:
         if env is not None:
             env.close()
