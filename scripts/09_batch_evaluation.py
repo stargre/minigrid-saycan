@@ -5,11 +5,15 @@ fallbacks instead of silently treating them as Qwen-controlled decisions.
 """
 import argparse
 import csv
+import inspect
 import json
 import os
 import re
 import time
 from pathlib import Path
+
+import numpy as np
+from PIL import Image
 
 from minigrid.core.world_object import Ball
 
@@ -28,6 +32,66 @@ TASKS = [
     ("T4", "Open the yellow door, then place the red ball above the green goal after picking it up."),
     ("T5", "Grab the red ball and put it above the green goal; open the yellow door if needed."),
 ]
+
+
+
+
+class RecordingStepOnlyEnv:
+    """Record frames while exposing only the guarded step(action) interface."""
+
+    def __init__(self, env, frames):
+        object.__setattr__(self, "_RecordingStepOnlyEnv__env", env)
+        object.__setattr__(self, "_RecordingStepOnlyEnv__frames", frames)
+        object.__setattr__(self, "step_calls", 0)
+
+    def capture(self):
+        env = object.__getattribute__(self, "_RecordingStepOnlyEnv__env")
+        frames = object.__getattribute__(self, "_RecordingStepOnlyEnv__frames")
+        frame = env.render()
+        if frame is None:
+            raise RuntimeError("MiniGrid returned no RGB frame.")
+        frames.append(np.asarray(frame, dtype=np.uint8).copy())
+
+    def step(self, action):
+        caller = inspect.currentframe().f_back
+        if (
+            caller is None
+            or caller.f_code.co_name != "execute_action"
+            or caller.f_globals.get("__name__") != "skills.observation_runtime"
+        ):
+            raise AssertionError(
+                "Primitive action bypassed ObservationRuntime.execute_action."
+            )
+
+        env = object.__getattribute__(self, "_RecordingStepOnlyEnv__env")
+        result = env.step(int(action))
+        object.__setattr__(self, "step_calls", self.step_calls + 1)
+        self.capture()
+        return result
+
+    def __getattr__(self, name):
+        raise AssertionError(
+            f"Decision code attempted hidden-state access: env.{name}"
+        )
+
+
+def save_visuals(frames, output_dir, duration_ms=180):
+    if not frames:
+        raise RuntimeError("No frames were recorded.")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    images = [Image.fromarray(frame) for frame in frames]
+    gif_path = output_dir / "trajectory.gif"
+    png_path = output_dir / "final_frame.png"
+    images[0].save(
+        gif_path,
+        save_all=True,
+        append_images=images[1:],
+        duration=int(duration_ms),
+        loop=0,
+        optimize=False,
+    )
+    images[-1].save(png_path)
+    return gif_path, png_path
 
 
 def _is_conditional_door_instruction(task):
@@ -118,10 +182,13 @@ def order_constraints(task_id, successful_sequence, door_required):
     }
 
 
-def run_one(task_id, task, seed, scorer):
-    env = SayCanGridEnv(render_mode=None)
+def run_one(task_id, task, seed, scorer, output_dir):
+    frames = []
+    env = SayCanGridEnv(render_mode="rgb_array")
     obs, _ = env.reset(seed=seed)
-    runtime = ObservationRuntime(env)
+    recorder = RecordingStepOnlyEnv(env, frames)
+    recorder.capture()
+    runtime = ObservationRuntime(recorder)
     runtime.reset(obs, initial_inventory="empty")
     planner = UnifiedSayCanPlanner(
         runtime,
@@ -152,6 +219,11 @@ def run_one(task_id, task, seed, scorer):
     oracle = ground_truth_success(env, task_id, task)
     history = result.get("history", [])
     successful_sequence = _successful_skill_sequence(history)
+    case_dir = output_dir / f"{task_id}_seed_{seed}"
+    gif_path, png_path = save_visuals(frames, case_dir)
+    frame_action_match = len(frames) == runtime.action_count + 1
+    gateway_action_match = recorder.step_calls == runtime.action_count
+    recording_integrity = bool(frame_action_match and gateway_action_match)
 
     qwen_scored_rounds = sum(
         record.get("relevance_source") == "QwenSkillRelevanceScorer"
@@ -187,9 +259,13 @@ def run_one(task_id, task, seed, scorer):
     order = order_constraints(
         task_id, successful_sequence, oracle["door_required"]
     )
-    verified_success = bool(planner_success and oracle["success"])
+    verified_success = bool(
+        planner_success and oracle["success"] and recording_integrity
+    )
     qwen_controlled_success = bool(verified_success and qwen_controlled)
-    strict_qwen_pass = bool(qwen_controlled_success and order["passed"])
+    strict_qwen_pass = bool(
+        qwen_controlled_success and order["passed"] and recording_integrity
+    )
 
     row = {
         "task_id": task_id,
@@ -220,6 +296,13 @@ def run_one(task_id, task, seed, scorer):
         "mean_qwen_latency_s": (
             round(sum(latencies) / len(latencies), 4) if latencies else None
         ),
+        "recorded_frames": len(frames),
+        "runtime_action_count": runtime.action_count,
+        "guarded_step_calls": recorder.step_calls,
+        "frame_action_match": frame_action_match,
+        "gateway_action_match": gateway_action_match,
+        "trajectory_gif": str(gif_path),
+        "final_frame": str(png_path),
         "oracle": oracle,
         "order_constraints": order,
         "error": error,
@@ -270,7 +353,7 @@ def main():
     rows, details = [], []
     for index, (task_id, task) in enumerate(selected_tasks):
         seed = args.seed_start + index
-        row, result = run_one(task_id, task, seed, scorer)
+        row, result = run_one(task_id, task, seed, scorer, output_dir)
         rows.append(row)
         details.append({"metrics": row, "result": result})
         print(json.dumps(row, ensure_ascii=False, sort_keys=True))
