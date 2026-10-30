@@ -398,7 +398,7 @@ class UnifiedSayCanPlanner:
         # skill chain will still have to open it before the task can succeed.
         door_action_optional = bool(
             re.search(
-                r"\\b(?:if|when)\\s+(?:it\\s+is\\s+)?(?:needed|necessary)\\b",
+                r"\b(?:if|when)\s+(?:it\s+is\s+)?(?:needed|necessary)\b",
                 text,
             )
         )
