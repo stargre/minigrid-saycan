@@ -76,9 +76,9 @@ class TaskDependencyResolver:
         fetch_intent = (
             "fetch" in text
             or bool(re.search(
-                r"\\bget\\s+(?:a|the)\\s+"
-                r"(?:(?:red|blue|green|purple|yellow|grey|gray)\\s+)?"
-                r"(?:key|ball)\\b",
+                r"\bget\s+(?:a|the)\s+"
+                r"(?:(?:red|blue|green|purple|yellow|grey|gray)\s+)?"
+                r"(?:key|ball)\b",
                 text,
             ))
         )
