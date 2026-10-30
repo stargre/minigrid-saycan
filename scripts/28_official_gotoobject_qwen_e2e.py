@@ -266,8 +266,8 @@ def run_case(env_id, seed, output_root, max_actions, max_high_level_steps,
         result = planner.run(task, max_high_level_steps=max_high_level_steps)
 
         # Ground-truth state is inspected only after all planning has stopped.
-        oracle = evaluate_after_run(env, runtime, history)
         history = result.get("history", [])
+        oracle = evaluate_after_run(env, runtime, history)
         skill_trace = build_skill_trace(history)
 
         api_error_fallbacks = sum(
