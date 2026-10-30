@@ -50,8 +50,12 @@ class SkillFeasibilityEvaluator:
             score = float(self._has_frontier())
             reason = "A reachable frontier remains." if score else "No known unexplored frontier remains."
         elif name == "Find":
-            score = float(not positions and self._has_frontier())
-            reason = "Search can reveal new observations." if score else ("Target is already known." if positions else "No reachable unexplored frontier remains.")
+            if self._held_matches(target):
+                score = 0.0
+                reason = "Target is already held; no search is required."
+            else:
+                score = float(not positions and self._has_frontier())
+                reason = "Search can reveal new observations." if score else ("Target is already known." if positions else "No reachable unexplored frontier remains.")
         elif name == "Reach":
             if positions:
                 pos, cell = min(
