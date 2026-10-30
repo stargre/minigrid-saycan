@@ -92,10 +92,17 @@ class TaskDependencyResolver:
         ]
         acquisition_intent = (
             any(word in text for word in ("pick", "take", "grab", "carry", "fetch"))
-            or bool(re.search(r"\\bget\\s+(?:a|an|the)\\s+", text))
+            or bool(re.search(r"\bget\s+(?:a|an|the)\s+", text))
+        )
+        object_movement_intent = any(
+            phrase in text
+            for phrase in (
+                "go to", "navigate", "reach", "approach", "enter",
+                "arrive at", "get to", "cross to",
+            )
         )
         goto_object_intent = (
-            bool(re.search(r"\\b(?:go|get|navigate)\\s+to\\b", text))
+            object_movement_intent
             and not acquisition_intent
             and len(explicit_object_targets) == 1
         )
@@ -158,7 +165,7 @@ class TaskDependencyResolver:
         targets = self.parse_targets(task, belief)
         pick_verbs = (
             any(word in text for word in ("pick", "take", "grab", "carry", "fetch"))
-            or bool(re.search(r"\\bget\\s+(?:a|an|the)\\s+", text))
+            or bool(re.search(r"\bget\s+(?:a|an|the)\s+", text))
         )
         place_verbs = any(word in text for word in ("place", "put", "drop", "set down"))
         move_verbs = any(word in text for word in ("move", "push", "clear", "obstacle", "blocked"))
