@@ -10,7 +10,7 @@ import re
 from skills.dependency import TaskDependencyResolver
 from skills.feasibility import SkillFeasibilityEvaluator
 from skills.unified_library import SkillLibraryV1
-from skills.target import parse_target_specs
+from skills.target import PICKABLE_OBJECTS, parse_target_specs
 from llm.skill_relevance import KeywordRelevanceScorer
 
 
@@ -301,8 +301,26 @@ class UnifiedSayCanPlanner:
             return False
         if "open" in text and "door" in text and not ({"open_door", "unlock_door"} & done):
             return False
-        if any(word in text for word in ("pick", "take", "grab", "fetch")):
+        target_specs = parse_target_specs(task)
+        pickup_targets = [
+            spec for spec in target_specs
+            if spec.object_name in PICKABLE_OBJECTS
+        ]
+        get_pickable_intent = bool(
+            re.search(r"\\bget\\s+(?:a|an|the)\\s+", text)
+            and pickup_targets
+        )
+        acquisition_intent = (
+            any(word in text for word in ("pick", "take", "grab", "fetch"))
+            or get_pickable_intent
+        )
+        if acquisition_intent:
             if not ({"pick", "pickup"} & done):
+                return False
+            held = getattr(self.runtime.belief, "held_object", None)
+            if pickup_targets and not any(
+                spec.matches(held) for spec in pickup_targets
+            ):
                 return False
         goal_entry_intent = any(
             phrase in text for phrase in
