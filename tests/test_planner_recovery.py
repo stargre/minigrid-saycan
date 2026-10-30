@@ -169,6 +169,9 @@ class PlannerRecoveryTests(unittest.TestCase):
 
     def test_conditional_door_open_is_not_an_unconditional_task_subgoal(self):
         planner = self.planner()
+        planner._task_success = UnifiedSayCanPlanner._task_success.__get__(
+            planner, UnifiedSayCanPlanner
+        )
         planner.runtime.belief.completed_subgoals = ["pick", "pickup", "place"]
         planner.history = [{"call": {"name": "PickUp"}}]
 
