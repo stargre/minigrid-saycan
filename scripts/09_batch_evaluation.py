@@ -398,6 +398,16 @@ def main():
     print("CSV:", csv_path)
     print("JSON:", json_path)
 
+    if args.scorer == "qwen":
+        strict_failures = [
+            row for row in rows if not row["strict_qwen_pass"]
+        ]
+        if strict_failures:
+            failed_ids = ", ".join(row["task_id"] for row in strict_failures)
+            raise SystemExit(
+                f"Strict Qwen multi-skill acceptance failed for: {failed_ids}"
+            )
+
 
 if __name__ == "__main__":
     main()
