@@ -243,21 +243,13 @@ class ObservationNavigator:
             self.reset_target()
             self._active_target = target
 
-        # 只要原来的接近位置仍然有效，就尽量保持。
-        if self._approach_pos is not None:
-            cell = self.belief.cell_at(
-                self._approach_pos
-            )
-
-            path = self._find_path(
-                start,
-                self._approach_pos,
-            )
-
-            if (
-                not self._safe_walkable(cell)
-                or path is None
-            ):
+        # Keep the committed approach cell once the agent has reached it.
+        # The current agent position is direct evidence that this cell is
+        # traversable; a stale/occluded map entry must not make us abandon it.
+        if self._approach_pos is not None and start != self._approach_pos:
+            cell = self.belief.cell_at(self._approach_pos)
+            path = self._find_path(start, self._approach_pos)
+            if not self._safe_walkable(cell) or path is None:
                 self._approach_pos = None
 
         if self._approach_pos is None:
