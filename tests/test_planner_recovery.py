@@ -70,6 +70,68 @@ class PlannerRecoveryTests(unittest.TestCase):
         self.assertTrue(result["record"]["zero_score_fallback"])
         planner.relevance.score.assert_called_once()
 
+    def test_feasible_done_has_priority_over_higher_qwen_explore_score(self):
+        planner = self.planner()
+        explore = {
+            "id": "Explore", "name": "Explore", "args": {},
+            "description": "Explore the environment",
+        }
+        done = {
+            "id": "Done:key:red", "name": "Done",
+            "args": {"target": {"object": "key", "color": "red"}},
+            "description": "Finish at the red key",
+        }
+        planner._candidate_pool = Mock(return_value=[
+            (explore, {"feasibility": 1.0, "reason": "frontier remains"}),
+            (done, {"feasibility": 1.0, "reason": "target is adjacent"}),
+        ])
+        planner.relevance.score.return_value = {
+            explore["id"]: {"relevance": 1.0, "rationale": "Explore the map"},
+            done["id"]: {"relevance": 0.0, "rationale": "Low semantic score"},
+        }
+        planner._execute_skill_to_terminal = Mock(return_value={
+            "success": True, "status": "done_issued", "low_level_actions": 1,
+        })
+
+        result = planner.step("go to the red key")
+
+        planner._execute_skill_to_terminal.assert_called_once_with(done)
+        self.assertEqual(result["record"]["call"]["name"], "Done")
+        self.assertTrue(result["record"]["terminal_priority"])
+        self.assertFalse(result["record"]["zero_score_fallback"])
+        self.assertIn(
+            "priority: feasible terminal Done action",
+            result["record"]["relevance_rationale"],
+        )
+
+    def test_infeasible_done_does_not_override_feasible_explore(self):
+        planner = self.planner()
+        explore = {
+            "id": "Explore", "name": "Explore", "args": {},
+            "description": "Explore the environment",
+        }
+        done = {
+            "id": "Done:key:red", "name": "Done",
+            "args": {"target": {"object": "key", "color": "red"}},
+            "description": "Finish at the red key",
+        }
+        planner._candidate_pool = Mock(return_value=[
+            (explore, {"feasibility": 1.0, "reason": "frontier remains"}),
+            (done, {"feasibility": 0.0, "reason": "target is not adjacent"}),
+        ])
+        planner.relevance.score.return_value = {
+            explore["id"]: {"relevance": 0.8, "rationale": "Explore next"},
+        }
+        planner._execute_skill_to_terminal = Mock(return_value={
+            "success": True, "status": "action_executed", "low_level_actions": 1,
+        })
+
+        result = planner.step("go to the red key")
+
+        planner._execute_skill_to_terminal.assert_called_once_with(explore)
+        self.assertEqual(result["record"]["call"]["name"], "Explore")
+        self.assertFalse(result["record"]["terminal_priority"])
+
     def test_infeasible_candidates_are_not_sent_to_relevance_scorer(self):
         planner = self.planner()
         feasible = {"id": "OpenDoor:yellow:door", "name": "OpenDoor", "args": {}, "description": "Open door"}
