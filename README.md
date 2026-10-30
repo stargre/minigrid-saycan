@@ -48,6 +48,10 @@ Task text → UnifiedSayCanPlanner → dependency resolution + feasibility + rel
 - **scripts/21_skill_behavior_suite.py** — independent behavioral checks for all ten public skills.
 - **scripts/22_hidden_state_audit.py** — static and guarded-runtime audit for hidden-state access and action-gateway bypass.
 - **scripts/23_official_doorkey_acceptance.py** — official DoorKey 5x5/6x6 integration tests.
+- **scripts/25_official_basic_env_acceptance.py** — Empty, GoToDoor and Unlock official environment acceptance tests.
+- **scripts/26_official_putnear_acceptance.py** — official PutNear integration tests.
+- **scripts/27_official_fetch_qwen_e2e.py** — Qwen-API-only Fetch end-to-end tests with per-action GIF recording and post-run oracle checks.
+- **tests/test_fetch_task_contract.py** — Fetch mission parsing and distractor-target filtering regressions.
 - **scripts/08_saycan_planner_test.py** — one end-to-end custom task; accepts SEED.
 - **scripts/09_batch_evaluation.py** — five task-language variants with CSV/JSON metrics.
 
@@ -70,6 +74,15 @@ Python 3.10+ is recommended.
     python scripts/23_official_doorkey_acceptance.py
     python scripts/25_official_basic_env_acceptance.py
     python scripts/26_official_putnear_acceptance.py --scorer keyword --seeds 0 1 2
+
+    # Qwen API is required; this runner never switches to keyword scoring.
+    export DASHSCOPE_API_KEY="YOUR_DASHSCOPE_API_KEY"
+    python scripts/27_official_fetch_qwen_e2e.py \
+      --env-ids MiniGrid-Fetch-6x6-N2-v0 --seeds 0
+    python scripts/27_official_fetch_qwen_e2e.py \
+      --env-ids MiniGrid-Fetch-5x5-N2-v0 MiniGrid-Fetch-6x6-N2-v0 MiniGrid-Fetch-8x8-N3-v0 \
+      --seeds 0 1 2 3 4
+
     python scripts/09_batch_evaluation.py
 
 Multi-seed regression:
@@ -80,6 +93,8 @@ Multi-seed regression:
     done
 
 To use Qwen, configure DASHSCOPE_API_KEY and inject QwenSkillRelevanceScorer into UnifiedSayCanPlanner. With the key unset, the default scorer is offline keyword scoring; do not report that as an LLM-planner experiment.
+
+The official Fetch demo is deliberately Qwen-API-only: it requires DASHSCOPE_API_KEY, records the API request count, fails if the planner falls back to keyword scoring, and writes one trajectory GIF plus final frame and JSON traces per environment/seed. Qwen scores the next semantic skill; deterministic feasibility supplies the observation-grounded affordance score. The combined relevance × feasibility score selects a skill, whose controller executes primitive actions through ObservationRuntime before the planner updates its belief and replans. The Fetch mission target is hard-constrained during candidate generation so distractor objects cannot become pickup candidates.
 
 ## Public skill contract
 
