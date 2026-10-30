@@ -82,6 +82,26 @@ class TaskDependencyResolver:
                 text,
             ))
         )
+        # Official GoToObject missions ask the agent to approach a single
+        # color/type target and issue Done; pickup is explicitly not part of
+        # this task. Restrict candidates to that mission target so observed
+        # distractor keys, balls, or boxes cannot become alternative goals.
+        explicit_object_targets = [
+            item for item in targets
+            if item.object_name in PICKABLE_OBJECTS and item.color
+        ]
+        acquisition_intent = (
+            any(word in text for word in ("pick", "take", "grab", "carry", "fetch"))
+            or bool(re.search(r"\\bget\\s+(?:a|an|the)\\s+", text))
+        )
+        goto_object_intent = (
+            bool(re.search(r"\\b(?:go|get|navigate)\\s+to\\b", text))
+            and not acquisition_intent
+            and len(explicit_object_targets) == 1
+        )
+        if goto_object_intent:
+            return explicit_object_targets
+
         if fetch_intent:
             explicit_fetch_targets = [
                 item for item in targets
@@ -136,7 +156,10 @@ class TaskDependencyResolver:
     def candidate_calls(self, task: str, belief=None) -> list[dict]:
         text = str(task).lower()
         targets = self.parse_targets(task, belief)
-        pick_verbs = any(word in text for word in ("pick", "take", "grab", "get", "carry", "fetch"))
+        pick_verbs = (
+            any(word in text for word in ("pick", "take", "grab", "carry", "fetch"))
+            or bool(re.search(r"\\bget\\s+(?:a|an|the)\\s+", text))
+        )
         place_verbs = any(word in text for word in ("place", "put", "drop", "set down"))
         move_verbs = any(word in text for word in ("move", "push", "clear", "obstacle", "blocked"))
         unlock_intent = "unlock" in text or bool(
@@ -148,12 +171,18 @@ class TaskDependencyResolver:
         )
         # GoToDoor missions use phrases such as "go to the red door".
         # They require the terminal Done action, not opening the door.
+        object_navigation_intent = (
+            movement_intent
+            and not pick_verbs
+            and any(target.object_name in PICKABLE_OBJECTS for target in targets)
+        )
         done_intent = (
             any(word in text for word in ("done", "finish", "complete", "go to the door", "reach the door"))
             or (
                 movement_intent
                 and any(target.object_name == "door" for target in targets)
             )
+            or object_navigation_intent
         )
         goal_entry_intent = any(
             phrase in text
@@ -234,7 +263,11 @@ class TaskDependencyResolver:
                         )
 
         if done_intent:
-            target = next((item for item in targets if item.object_name in {"door", "goal"}), None)
+            target = next((
+                item for item in targets
+                if item.object_name in {"door", "goal"}
+                or (object_navigation_intent and item.object_name in PICKABLE_OBJECTS)
+            ), None)
             if target is not None:
                 calls.append(make_call("Done", target=target.to_dict()))
 
