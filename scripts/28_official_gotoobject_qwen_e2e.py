@@ -8,7 +8,7 @@ recorded after every primitive action. Ground truth is inspected only after the
 planner has stopped.
 
 Run:
-    python scripts/27_official_fetch_qwen_e2e.py \
+    python scripts/28_official_gotoobject_qwen_e2e.py \
         --env-ids MiniGrid-GoToObject-6x6-N2-v0 --seeds 0
 """
 import argparse
