@@ -39,48 +39,110 @@ class PickUpSkill(UnifiedSkill):
 class PlaceNearSkill(UnifiedSkill):
     name = "PlaceNear"
 
+    def __init__(self, runtime):
+        super().__init__(runtime)
+        # A placement decision is a skill-level commitment, not something to
+        # recompute from the agent's changing position on every controller tick.
+        self._active_plan_key = None
+        self._active_destination_pos = None
+        self._active_placement_pos = None
+
+    def _reset_plan(self, reset_navigator=False):
+        self._active_plan_key = None
+        self._active_destination_pos = None
+        self._active_placement_pos = None
+        if reset_navigator:
+            self.navigator.reset_target()
+
     def step(self, object, target, relation="near", **kwargs):
         obj_spec = TargetSpec.from_value(object)
         held = getattr(self.belief, "held_object", None)
         if not held or not obj_spec.matches(held):
+            self._reset_plan(reset_navigator=True)
             return self._result(False, "not_holding_object", "Pick up the requested object before placing it.")
+
+        target_spec = TargetSpec.from_value(target)
         destinations = self._positions(target)
         if not destinations:
+            self._reset_plan(reset_navigator=True)
             return self._result(False, "target_not_found", "Find the destination object before placing.")
+
         relation_norm = str(relation).strip().lower().replace("-", "_")
-        dest_pos, target_pos, placement_error = select_placement(
-            self.belief,
-            self.navigator,
-            [pos for pos, _ in destinations],
-            relation_norm,
-        )
-        if placement_error == "unsupported_relation":
-            return self._result(False, placement_error, f"Unsupported relation: {relation}")
-        if placement_error == "placement_cell_unknown":
-            return self._result(False, placement_error, "No known empty placement cell is available for the requested relation.")
-        if placement_error == "placement_cell_occupied":
-            return self._result(False, placement_error, "The relation-derived placement cell is occupied.")
-        if placement_error == "no_known_path":
-            return self._result(False, placement_error, "Known empty placement cells have no reachable adjacent approach.")
-        result = self.navigator.step_to_adjacent(target_pos)
+        plan_key = (obj_spec.key, target_spec.key, relation_norm)
+
+        # Keep the same destination and placement cell for the lifetime of this
+        # PlaceNear call. Re-select only when the task changes or the committed
+        # cells are no longer supported by the current belief.
+        if self._active_plan_key != plan_key:
+            self._reset_plan(reset_navigator=True)
+            self._active_plan_key = plan_key
+
+        dest_pos = self._active_destination_pos
+        placement_pos = self._active_placement_pos
+
+        if placement_pos is not None:
+            destination_cell = self.belief.cell_at(dest_pos)
+            placement_cell = self.belief.cell_at(placement_pos)
+            destination_valid = target_spec.matches(destination_cell)
+            placement_valid = bool(
+                placement_cell
+                and placement_cell.get("object") in {"empty", "floor"}
+            )
+            if not destination_valid or not placement_valid:
+                self._reset_plan(reset_navigator=True)
+                self._active_plan_key = plan_key
+                dest_pos = None
+                placement_pos = None
+
+        if placement_pos is None:
+            dest_pos, placement_pos, placement_error = select_placement(
+                self.belief,
+                self.navigator,
+                [pos for pos, _ in destinations],
+                relation_norm,
+            )
+            if placement_error == "unsupported_relation":
+                return self._result(False, placement_error, f"Unsupported relation: {relation}")
+            if placement_error == "placement_cell_unknown":
+                return self._result(False, placement_error, "No known empty placement cell is available for the requested relation.")
+            if placement_error == "placement_cell_occupied":
+                return self._result(False, placement_error, "The relation-derived placement cell is occupied.")
+            if placement_error == "no_known_path":
+                return self._result(False, placement_error, "Known empty placement cells have no reachable adjacent approach.")
+
+            dest_pos = tuple(dest_pos)
+            placement_pos = tuple(placement_pos)
+            self._active_destination_pos = dest_pos
+            self._active_placement_pos = placement_pos
+        else:
+            dest_pos = tuple(dest_pos)
+            placement_pos = tuple(placement_pos)
+
+        result = self.navigator.step_to_adjacent(placement_pos)
         if result.get("status") != "target_adjacent":
+            if result.get("status") in {"no_known_path", "target_not_known"}:
+                # Permit a fresh choice after the planner obtains new evidence.
+                self._reset_plan(reset_navigator=True)
             result["skill"] = self.name
+            result["placement_position"] = list(placement_pos)
+            result["destination_position"] = list(dest_pos)
             return result
+
         action = self.runtime.execute_action(Actions.drop)
-        after = self.belief.cell_at(target_pos)
+        after = self.belief.cell_at(placement_pos)
         held_after = getattr(self.belief, "held_object", None)
         success = bool(after and obj_spec.matches(after) and not held_after)
         if success:
             # Only the skill can confirm that the object occupies the
             # relation-derived cell after release; a generic Drop is not enough.
             self.belief._mark_completed("place")
+            self._reset_plan(reset_navigator=True)
         return self._result(
             success, "skill_complete" if success else "placement_not_confirmed",
             "Placement and object release confirmed by observation." if success else "The target relation has not been confirmed by observation.",
-            actions_executed=action["actions_executed"], placement_position=list(target_pos),
+            actions_executed=action["actions_executed"], placement_position=list(placement_pos),
             destination_position=list(dest_pos), relation=relation_norm,
         )
-
 
 class MoveObstacleSkill(UnifiedSkill):
     name = "MoveObstacle"
