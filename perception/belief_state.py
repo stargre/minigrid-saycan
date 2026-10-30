@@ -83,14 +83,37 @@ class BeliefState:
                 lateral = x - center
                 dx, dy = self._world_offset(forward, lateral, direction)
                 pos = (self.agent_pos[0] + dx, self.agent_pos[1] + dy)
-                if cell["object"] == "agent":
-                    cell = {"object": "empty", "color": "unknown", "state": "unknown"}
-                self.known_map[pos] = {**cell, "last_seen": self.observation_count}
 
-        self.known_map[self.agent_pos] = {
-            "object": "empty", "color": "unknown", "state": "unknown",
-            "last_seen": self.observation_count,
-        }
+                if cell["object"] == "agent":
+                    # The agent occludes the underlying tile. Preserve the
+                    # last observation of that tile (e.g. an open door or
+                    # green goal) instead of rewriting it as empty floor.
+                    previous_cell = self.known_map.get(pos)
+                    if previous_cell is None:
+                        previous_cell = {
+                            "object": "empty",
+                            "color": "unknown",
+                            "state": "unknown",
+                            "last_seen": self.observation_count,
+                        }
+                    self.known_map[pos] = dict(previous_cell)
+                    continue
+
+                self.known_map[pos] = {
+                    **cell,
+                    "last_seen": self.observation_count,
+                }
+
+        # Normally the agent marker above has already populated this cell.
+        # Keep a safe fallback for observations without an explicit marker,
+        # but never overwrite previously observed terrain/object identity.
+        if self.agent_pos not in self.known_map:
+            self.known_map[self.agent_pos] = {
+                "object": "empty",
+                "color": "unknown",
+                "state": "unknown",
+                "last_seen": self.observation_count,
+            }
 
     def update(self, previous_obs, action, next_obs):
         action_id = int(action)

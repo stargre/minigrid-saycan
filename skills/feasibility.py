@@ -1,7 +1,7 @@
 """Deterministic feasibility evaluator based only on BeliefState."""
 from skills.navigation import ObservationNavigator
 from skills.target import PICKABLE_OBJECTS, TargetSpec, relation_offset
-from skills.dependency import TaskDependencyResolver
+from skills.dependency import TaskDependencyResolver, make_call
 from perception.belief_state import DIRECTIONS, is_walkable
 
 
@@ -161,5 +161,5 @@ class SkillFeasibilityEvaluator:
         if score <= 0:
             prerequisites = self.dependencies.prerequisites_for(call, self.belief)
             if not prerequisites and name not in {"Explore", "Find"} and self._has_frontier():
-                prerequisites = [{"id":"Explore","name":"Explore","args":{},"description":"Explore the environment"}]
+                prerequisites = [make_call("Explore")]
         return {"feasibility": float(score), "reason": reason, "prerequisites": prerequisites}

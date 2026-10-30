@@ -70,6 +70,7 @@ class UnifiedSayCanPlanner:
         self.blocked_ids = {}
         self._queued = {}
         self._run_start_actions = runtime.action_count
+        self.last_candidate_diagnostics = []
 
     def _refresh_blocked(self):
         current_observation = self.runtime.belief.observation_count
@@ -99,6 +100,21 @@ class UnifiedSayCanPlanner:
                 continue
             enriched.append((call, self.feasibility.evaluate(call)))
         return enriched
+
+    @staticmethod
+    def _candidate_diagnostics(pool):
+        """Return the full pre-scoring candidate pool for failure analysis."""
+        return [
+            {
+                "id": call.get("id"),
+                "name": call.get("name"),
+                "args": call.get("args", {}),
+                "feasibility": float(assessment.get("feasibility", 0.0)),
+                "reason": assessment.get("reason", ""),
+                "prerequisites": assessment.get("prerequisites", []),
+            }
+            for call, assessment in pool
+        ]
 
     def _execute_skill_to_terminal(self, call):
         start_actions = self.runtime.action_count
@@ -178,8 +194,15 @@ class UnifiedSayCanPlanner:
             return {"success": False, "status": "max_actions_reached", "history": self.history}
 
         pool = self._candidate_pool(task)
+        candidate_diagnostics = self._candidate_diagnostics(pool)
+        self.last_candidate_diagnostics = candidate_diagnostics
         if not pool:
-            return {"success": False, "status": "no_feasible_candidate", "history": self.history}
+            return {
+                "success": False,
+                "status": "no_feasible_candidate",
+                "history": self.history,
+                "candidate_diagnostics": candidate_diagnostics,
+            }
 
         # Ask the LLM only about skills that the deterministic feasibility
         # evaluator says can execute now. Infeasible calls remain available as
@@ -190,11 +213,8 @@ class UnifiedSayCanPlanner:
             return {
                 "success": False, "status": "no_feasible_candidate",
                 "history": self.history,
-                "candidates": [{
-                    "id": call["id"], "name": call["name"], "relevance": 0.0,
-                    "feasibility": float(assessment["feasibility"]),
-                    "reason": assessment["reason"],
-                } for call, assessment in pool],
+                "candidates": candidate_diagnostics,
+                "candidate_diagnostics": candidate_diagnostics,
             }
 
         calls = [call for call, _ in feasible_pool]
@@ -289,6 +309,7 @@ class UnifiedSayCanPlanner:
             "selected_candidate_id": call["id"],
             "selection_policy": selection_policy,
             "candidate_rankings": candidate_rankings,
+            "candidate_diagnostics": candidate_diagnostics,
             "relevance": selected["relevance"], "feasibility": selected["feasibility"],
             "score": selected["score"], "zero_score_fallback": zero_score_fallback,
             "terminal_priority": terminal_priority,
@@ -341,11 +362,16 @@ class UnifiedSayCanPlanner:
             "low_level_actions": self.runtime.action_count - self._run_start_actions,
             "completed_calls": sorted(self.completed_ids),
             "blocked_calls": sorted(self.blocked_ids), "history": self.history,
+            "last_candidate_diagnostics": getattr(
+                self, "last_candidate_diagnostics", []
+            ),
         }
 
     def _try_recovery_candidate(self, task):
         """Try a bounded, observation-grounded recovery action if one exists."""
         pool = self._candidate_pool(task)
+        candidate_diagnostics = self._candidate_diagnostics(pool)
+        self.last_candidate_diagnostics = candidate_diagnostics
         feasible = [(call, assessment) for call, assessment in pool
                     if float(assessment["feasibility"]) > 0]
         if not feasible:
@@ -359,6 +385,7 @@ class UnifiedSayCanPlanner:
             "round": len(self.history) + 1, "call": call,
             "selected_candidate_id": call["id"],
             "selection_policy": "deterministic_recovery",
+            "candidate_diagnostics": candidate_diagnostics,
             "candidate_rankings": [
                 {
                     "id": candidate["id"],

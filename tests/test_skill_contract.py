@@ -1,8 +1,12 @@
 import unittest
+
+import numpy as np
+from minigrid.core.constants import OBJECT_TO_IDX
 from skills.target import TargetSpec, parse_target_specs, relation_offset
 from skills.dependency import TaskDependencyResolver, make_call
 from llm.skill_relevance import KeywordRelevanceScorer
 from skills.feasibility import SkillFeasibilityEvaluator
+from perception.belief_state import BeliefState
 
 
 class TargetTests(unittest.TestCase):
@@ -35,6 +39,37 @@ class TargetTests(unittest.TestCase):
         self.assertEqual(relation_offset("above"), (0, -1))
         self.assertEqual(relation_offset("left_of"), (-1, 0))
         self.assertIsNone(relation_offset("diagonal"))
+
+
+class BeliefStateTests(unittest.TestCase):
+    def test_agent_occlusion_preserves_underlying_open_door(self):
+        image = np.zeros((7, 7, 3), dtype=np.uint8)
+        image[:, :, 0] = OBJECT_TO_IDX["unseen"]
+        image[3, 6] = [OBJECT_TO_IDX["agent"], 0, 0]
+
+        belief = BeliefState()
+        belief.agent_pos = (2, 3)
+        belief.known_map[belief.agent_pos] = {
+            "object": "door",
+            "color": "yellow",
+            "state": "open",
+            "last_seen": 1,
+        }
+
+        belief._integrate_observation({
+            "image": image,
+            "direction": 0,
+        })
+
+        self.assertEqual(
+            belief.known_map[belief.agent_pos]["object"], "door"
+        )
+        self.assertEqual(
+            belief.known_map[belief.agent_pos]["color"], "yellow"
+        )
+        self.assertEqual(
+            belief.known_map[belief.agent_pos]["state"], "open"
+        )
 
 
 class DependencyTests(unittest.TestCase):
@@ -121,6 +156,31 @@ class DependencyTests(unittest.TestCase):
         self.assertTrue(place)
         self.assertEqual(place[0]["args"]["relation"], "above")
 
+    def test_multiskill_place_near_uses_the_explicit_goal_across_t1_t5(self):
+        tasks = [
+            "Pick up the red ball, open the yellow door, and place it above the green goal.",
+            "Open the yellow door first, then pick up the red ball, and finally place it above the green goal.",
+            "Take the red ball, open the yellow door, and drop it above the green goal.",
+            "Open the yellow door, then place the red ball above the green goal after picking it up.",
+            "Grab the red ball and put it above the green goal; open the yellow door if needed.",
+        ]
+
+        resolver = TaskDependencyResolver()
+        for task in tasks:
+            with self.subTest(task=task):
+                calls = resolver.candidate_calls(task)
+                place_calls = [
+                    call for call in calls if call["name"] == "PlaceNear"
+                ]
+
+                self.assertEqual(len(place_calls), 1)
+                args = place_calls[0]["args"]
+                self.assertEqual(args["object"]["object"], "ball")
+                self.assertEqual(args["object"]["color"], "red")
+                self.assertEqual(args["target"]["object"], "goal")
+                self.assertEqual(args["target"]["color"], "green")
+                self.assertEqual(args["relation"], "above")
+
     def test_putnear_candidate_exposes_ordered_pickup_and_destination(self):
         task = "put the red ball near the green box"
         calls = TaskDependencyResolver().candidate_calls(task)
@@ -151,6 +211,42 @@ class DependencyTests(unittest.TestCase):
 
 
 class FeasibilityTests(unittest.TestCase):
+    def test_explore_prerequisite_uses_canonical_skill_id(self):
+        class Belief:
+            inventory_status = "empty"
+            held_object = None
+            agent_pos = (0, 0)
+            agent_dir = 0
+            known_map = {
+                (0, 0): {
+                    "object": "empty",
+                    "color": "unknown",
+                    "state": "unknown",
+                }
+            }
+
+            @staticmethod
+            def cell_at(_position):
+                return None
+
+        class Runtime:
+            belief = Belief()
+            terminated = False
+            truncated = False
+
+        evaluator = SkillFeasibilityEvaluator(Runtime())
+        assessment = evaluator.evaluate({
+            "id": "unknown",
+            "name": "UnknownSkill",
+            "args": {},
+        })
+
+        self.assertEqual(
+            assessment["prerequisites"][0]["id"],
+            make_call("Explore")["id"],
+        )
+        self.assertEqual(assessment["prerequisites"][0]["id"], "explore")
+
     def test_find_is_infeasible_when_target_is_held(self):
         class Belief:
             inventory_status = "yellow_ball"

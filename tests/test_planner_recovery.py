@@ -217,7 +217,7 @@ class PlannerRecoveryTests(unittest.TestCase):
             [item["id"] for item in ranking],
             [pickup["id"], explore["id"]],
         )
-        self.assertEqual(ranking[0]["score"], 0.72)
+        self.assertAlmostEqual(ranking[0]["score"], 0.72, places=12)
         self.assertEqual(ranking[0]["feasibility"], 0.8)
         self.assertEqual(
             result["record"]["selection_policy"],
@@ -243,6 +243,13 @@ class PlannerRecoveryTests(unittest.TestCase):
         sent_calls = planner.relevance.score.call_args.args[1]
         self.assertEqual([c["id"] for c in sent_calls], [feasible["id"]])
         self.assertTrue(result["success"])
+
+        diagnostics = result["record"]["candidate_diagnostics"]
+        place_diagnostic = next(
+            item for item in diagnostics if item["id"] == infeasible["id"]
+        )
+        self.assertEqual(place_diagnostic["feasibility"], 0.0)
+        self.assertEqual(place_diagnostic["reason"], "not holding")
 
 
 if __name__ == "__main__":

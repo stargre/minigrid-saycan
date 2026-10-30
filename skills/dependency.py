@@ -167,7 +167,7 @@ class TaskDependencyResolver:
             any(word in text for word in ("pick", "take", "grab", "carry", "fetch"))
             or bool(re.search(r"\bget\s+(?:a|an|the)\s+", text))
         )
-        place_verbs = any(word in text for word in ("place", "put", "drop", "set down"))
+        place_verbs = bool(re.search(r"\b(?:place|put|drop|set\s+down)\b", text))
         move_verbs = any(word in text for word in ("move", "push", "clear", "obstacle", "blocked"))
         unlock_intent = "unlock" in text or bool(
             belief is not None and belief.find_objects("door", state="locked")
@@ -228,46 +228,123 @@ class TaskDependencyResolver:
                     )
 
         if place_verbs:
-            # Official PutNear missions can name pickable objects as both the
-            # moved object and the destination. Preserve mention order instead
-            # of treating every pickable object as movable.
             task_targets = parse_target_specs(task)
-            relation = "near"
-            for candidate in ("above", "below", "left_of", "right_of", "near"):
-                if re.search(r"\b" + candidate.replace("_of", "") + r"\b", text):
-                    relation = candidate
-                    break
-            if re.search(r"\b(left|right)\s+of\b", text):
-                relation = "left_of" if re.search(r"\bleft\s+of\b", text) else "right_of"
+            place_matches = list(re.finditer(
+                r"\b(?:place|put|drop|set\s+down)\b", text
+            ))
+            place_match = place_matches[-1] if place_matches else None
 
-            if len(task_targets) >= 2:
-                moving_object, destination = task_targets[0], task_targets[1]
-                if moving_object.object_name in PICKABLE_OBJECTS or moving_object.object_name == "object":
-                    # Placement requires acquiring the moved object first.
-                    calls.append(make_call("PickUp", target=moving_object.to_dict()))
+            # Resolve the relation and destination relative to the placement
+            # verb. This avoids confusing an earlier door/key mention with
+            # the actual placement destination in compound instructions.
+            relation_patterns = (
+                (r"\bon\s+top\s+of\b", "above"),
+                (r"\babove\b", "above"),
+                (r"\b(?:below|under|beneath)\b", "below"),
+                (r"\bleft\s+of\b", "left_of"),
+                (r"\bright\s+of\b", "right_of"),
+                (r"\b(?:near|beside|next\s+to|adjacent\s+to)\b", "near"),
+            )
+            relation = "near"
+            relation_start = None
+            relation_end = None
+
+            if place_match is not None:
+                relation_text_start = place_match.end()
+                relation_text = text[relation_text_start:]
+                for pattern, normalized in relation_patterns:
+                    match = re.search(pattern, relation_text)
+                    if match is not None:
+                        relation = normalized
+                        relation_start = relation_text_start + match.start()
+                        relation_end = relation_text_start + match.end()
+                        break
+
+            destination = None
+            if relation_end is not None:
+                destination_candidates = parse_target_specs(text[relation_end:])
+                if destination_candidates:
+                    destination = destination_candidates[0]
+
+            # Fallback for concise or slightly different natural-language
+            # forms where the relation phrase is omitted.
+            if destination is None and place_match is not None:
+                after_place = parse_target_specs(text[place_match.end():])
+                destination_candidates = [
+                    item for item in after_place
+                    if item.object_name not in PICKABLE_OBJECTS
+                    and item.object_name != "object"
+                ]
+                if destination_candidates:
+                    destination = destination_candidates[0]
+
+            if destination is None:
+                destination_candidates = [
+                    item for item in task_targets
+                    if item.object_name not in PICKABLE_OBJECTS
+                    and item.object_name != "object"
+                ]
+                if destination_candidates:
+                    destination = destination_candidates[-1]
+
+            # Prefer an explicitly named object after the placement verb.
+            # For pronouns such as "place it", resolve to the most recently
+            # mentioned movable object before the placement instruction.
+            moving_object = None
+            if place_match is not None:
+                object_segment_end = (
+                    relation_start if relation_start is not None else len(text)
+                )
+                object_segment = text[place_match.end():object_segment_end]
+                explicit_movable = [
+                    item for item in parse_target_specs(object_segment)
+                    if item.object_name in PICKABLE_OBJECTS
+                    or item.object_name == "object"
+                ]
+                if explicit_movable:
+                    moving_object = explicit_movable[-1]
+
+                if moving_object is None:
+                    preceding_movable = [
+                        item for item in parse_target_specs(text[:place_match.start()])
+                        if item.object_name in PICKABLE_OBJECTS
+                        or item.object_name == "object"
+                    ]
+                    if preceding_movable:
+                        moving_object = preceding_movable[-1]
+
+            # A terse instruction such as "place it near the goal" may rely
+            # on the object already held by the agent.
+            held = getattr(belief, "held_object", None) if belief is not None else None
+            if moving_object is None and held:
+                moving_object = TargetSpec.from_value(held)
+
+            if moving_object is None:
+                movable_targets = [
+                    item for item in task_targets
+                    if item.object_name in PICKABLE_OBJECTS
+                    or item.object_name == "object"
+                ]
+                if movable_targets:
+                    moving_object = movable_targets[-1]
+
+            if moving_object is not None and destination is not None:
+                already_held = bool(
+                    belief is not None
+                    and self._held_matches(belief, moving_object)
+                )
+                if not already_held:
                     calls.append(
-                        make_call(
-                            "PlaceNear",
-                            object=moving_object.to_dict(),
-                            target=destination.to_dict(),
-                            relation=relation,
-                        )
+                        make_call("PickUp", target=moving_object.to_dict())
                     )
-            else:
-                # Retain the fallback for terse tasks such as "place it near
-                # the goal", where only the destination is explicit.
-                movable = [item for item in targets if item.object_name in PICKABLE_OBJECTS]
-                destinations = [item for item in targets if item.object_name not in PICKABLE_OBJECTS]
-                for obj in movable:
-                    for destination in destinations:
-                        calls.append(
-                            make_call(
-                                "PlaceNear",
-                                object=obj.to_dict(),
-                                target=destination.to_dict(),
-                                relation=relation,
-                            )
-                        )
+                calls.append(
+                    make_call(
+                        "PlaceNear",
+                        object=moving_object.to_dict(),
+                        target=destination.to_dict(),
+                        relation=relation,
+                    )
+                )
 
         if done_intent:
             target = next((
