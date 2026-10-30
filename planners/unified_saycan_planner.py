@@ -353,6 +353,29 @@ class UnifiedSayCanPlanner:
                 and self.runtime.last_reward > 0
             )
 
+        # Official GoToObject missions use the same terminal Done interaction
+        # as GoToDoor, but their target is a pickable object (key, ball, or box).
+        # Merely finding or navigating next to the object is not task success;
+        # the environment must confirm a positive-reward terminal transition.
+        object_navigation_only = (
+            goal_entry_intent
+            and any(spec.object_name in PICKABLE_OBJECTS for spec in target_specs)
+            and not acquisition_intent
+            and not release_intent
+            and not any(word in text for word in ("find", "search", "locate"))
+        )
+        if object_navigation_only:
+            done_issued = any(
+                record.get("call", {}).get("name") == "Done"
+                for record in self.history
+            )
+            return bool(
+                done_issued
+                and self.runtime.terminated
+                and not self.runtime.truncated
+                and self.runtime.last_reward > 0
+            )
+
         if "goal" in text and goal_entry_intent:
             if "reach" not in done and not (self.runtime.terminated and self.runtime.last_reward > 0):
                 return False
