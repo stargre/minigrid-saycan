@@ -62,6 +62,138 @@ class TaskCompletionTests(unittest.TestCase):
         )
         self.assertTrue(planner._task_success(task))
 
+    def test_get_object_task_does_not_finish_when_find_only_succeeded(self):
+        class FetchBelief:
+            known_map = {
+                (2, 1): {"object": "key", "color": "grey", "state": "unknown"}
+            }
+            inventory_status = "empty"
+            held_object = None
+            completed_subgoals = []
+
+        class FetchRuntime:
+            belief = FetchBelief()
+            terminated = False
+            truncated = False
+            last_reward = 0.0
+
+        planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
+        planner.runtime = FetchRuntime()
+        planner.history = [
+            {
+                "call": {
+                    "name": "Find",
+                    "args": {"target": {"object": "key", "color": "grey"}},
+                },
+                "result": {
+                    "success": True,
+                    "status": "target_found",
+                    "target": {"object": "key", "color": "grey"},
+                },
+            }
+        ]
+
+        self.assertFalse(planner._task_success("go get a grey key"))
+
+    def test_get_object_task_requires_the_requested_object_to_be_held(self):
+        class FetchBelief:
+            known_map = {}
+            inventory_status = "blue_ball"
+            held_object = {"object": "ball", "color": "blue", "state": "held"}
+            completed_subgoals = ["pick", "pickup"]
+
+        class FetchRuntime:
+            belief = FetchBelief()
+            terminated = False
+            truncated = False
+            last_reward = 0.0
+
+        planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
+        planner.runtime = FetchRuntime()
+        planner.history = [
+            {
+                "call": {
+                    "name": "Find",
+                    "args": {"target": {"object": "key", "color": "grey"}},
+                },
+                "result": {
+                    "success": True,
+                    "status": "target_found",
+                    "target": {"object": "key", "color": "grey"},
+                },
+            },
+            {
+                "call": {
+                    "name": "PickUp",
+                    "args": {"target": {"object": "ball", "color": "blue"}},
+                },
+                "result": {"success": True, "status": "skill_complete"},
+            },
+        ]
+
+        self.assertFalse(planner._task_success("go get a grey key"))
+        self.assertTrue(planner._task_success("go get a blue ball"))
+
+    def test_pickup_and_place_task_completes_after_object_is_released(self):
+        class PlacementBelief:
+            known_map = {}
+            inventory_status = "empty"
+            held_object = None
+            completed_subgoals = ["pick", "pickup", "place"]
+
+        class PlacementRuntime:
+            belief = PlacementBelief()
+            terminated = False
+            truncated = False
+            last_reward = 0.0
+
+        planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
+        planner.runtime = PlacementRuntime()
+        planner.history = [
+            {
+                "call": {
+                    "name": "PickUp",
+                    "args": {"target": {"object": "ball", "color": "red"}},
+                },
+                "result": {"success": True, "status": "skill_complete"},
+            },
+            {
+                "call": {
+                    "name": "PlaceNear",
+                    "args": {
+                        "object": {"object": "ball", "color": "red"},
+                        "target": {"object": "box", "color": "green"},
+                    },
+                },
+                "result": {"success": True, "status": "skill_complete"},
+            },
+        ]
+
+        self.assertTrue(
+            planner._task_success("pick up the red ball and place it near the green box")
+        )
+
+    def test_get_to_door_is_not_misclassified_as_object_pickup(self):
+        planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
+        planner.runtime = FakeRuntime()
+        planner.runtime.terminated = False
+        planner.runtime.truncated = False
+        planner.runtime.last_reward = 0.0
+        planner.history = [
+            {
+                "call": {
+                    "name": "NavigateTo",
+                    "args": {"target": {"object": "door", "color": "green"}},
+                },
+                "result": {"success": True, "status": "skill_complete"},
+            }
+        ]
+        self.assertFalse(planner._task_success("get to the green door"))
+
+        planner.runtime.terminated = True
+        planner.runtime.last_reward = 0.95
+        self.assertTrue(planner._task_success("get to the green door"))
+
     def test_find_task_still_fails_without_any_target_evidence(self):
         planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
         planner.runtime = FakeRuntime()
