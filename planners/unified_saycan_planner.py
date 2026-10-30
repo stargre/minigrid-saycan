@@ -165,7 +165,7 @@ class UnifiedSayCanPlanner:
                 "open", "unlock", "pick", "take", "grab", "carry", "fetch",
                 "place", "put", "drop", "set down", "find", "search", "locate",
             )
-        ) or re.search(r"\\bget\\s+(?:a|an|the|it|them)\\b", text):
+        ) or re.search(r"\bget\s+(?:a|an|the|it|them)\b", text):
             return False
 
         return any(
