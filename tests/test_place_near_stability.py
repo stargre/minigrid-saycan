@@ -106,6 +106,8 @@ class PlaceNearStabilityTests(unittest.TestCase):
         runtime.belief.agent_pos = (1, 0)
         runtime.belief.agent_dir = 0
         runtime.belief.known_map[(1, 0)] = cell("wall")
+        # The target must be observed before the navigator can reason about adjacency.
+        runtime.belief.known_map[(2, 0)] = cell("box", "purple")
 
         navigator = ObservationNavigator(runtime)
         navigator._active_target = (2, 0)
