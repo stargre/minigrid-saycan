@@ -195,16 +195,39 @@ class UnifiedSayCanPlanner:
             })
 
         scored.sort(key=lambda item: (-item["score"], item["call"]["id"]))
-        # A zero relevance response must not dead-end an otherwise feasible
-        # planner. Use the strongest feasible candidate as a deterministic
-        # fallback, and make the fallback explicit in the history.
-        selected = next((item for item in scored if item["score"] > 0), None)
-        zero_score_fallback = selected is None
-        if selected is None:
-            selected = max(scored, key=lambda item: (item["feasibility"], item["call"]["id"]))
+
+        # A feasible Done call is the task's terminal interaction. Once its
+        # preconditions are met, do not let semantic relevance select Explore
+        # or another skill that could move the agent away from the target.
+        # DoneSkill still performs the final orientation check, and task
+        # success is verified separately from the environment's terminal reward.
+        terminal = next(
+            (item for item in scored if item["call"].get("name") == "Done"),
+            None,
+        )
+        terminal_priority = terminal is not None
+        if terminal_priority:
+            selected = terminal
             selected["rationale"] = (
-                str(selected.get("rationale", "")) + " [fallback: all feasible candidates had zero relevance]"
+                str(selected.get("rationale", ""))
+                + " [priority: feasible terminal Done action]"
             ).strip()
+            zero_score_fallback = False
+        else:
+            # A zero relevance response must not dead-end an otherwise feasible
+            # planner. Use the strongest feasible candidate as a deterministic
+            # fallback, and make the fallback explicit in the history.
+            selected = next((item for item in scored if item["score"] > 0), None)
+            zero_score_fallback = selected is None
+            if selected is None:
+                selected = max(
+                    scored,
+                    key=lambda item: (item["feasibility"], item["call"]["id"]),
+                )
+                selected["rationale"] = (
+                    str(selected.get("rationale", ""))
+                    + " [fallback: all feasible candidates had zero relevance]"
+                ).strip()
 
         call = selected["call"]
         result = self._execute_skill_to_terminal(call)
@@ -212,6 +235,7 @@ class UnifiedSayCanPlanner:
             "round": len(self.history) + 1, "call": call,
             "relevance": selected["relevance"], "feasibility": selected["feasibility"],
             "score": selected["score"], "zero_score_fallback": zero_score_fallback,
+            "terminal_priority": terminal_priority,
             "relevance_rationale": selected["rationale"],
             "relevance_source": relevance_source,
             "relevance_error": relevance_error,
