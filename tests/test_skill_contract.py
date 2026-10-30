@@ -51,6 +51,46 @@ class DependencyTests(unittest.TestCase):
         ))
         self.assertFalse(any(c["name"] in {"OpenDoor", "UnlockDoor"} for c in calls))
 
+    def test_gotoobject_uses_done_for_only_the_explicit_object(self):
+        class Belief:
+            known_map = {
+                (1, 1): {"object": "key", "color": "red", "state": "unknown"},
+                (2, 1): {"object": "ball", "color": "blue", "state": "unknown"},
+                (3, 1): {"object": "box", "color": "green", "state": "unknown"},
+                (4, 1): {"object": "key", "color": "blue", "state": "unknown"},
+            }
+
+            @staticmethod
+            def find_objects(*args, **kwargs):
+                return []
+
+        calls = TaskDependencyResolver().candidate_calls(
+            "go to the red key", Belief()
+        )
+        target_specs = {
+            (call.get("args", {}).get("target", {}).get("object"),
+             call.get("args", {}).get("target", {}).get("color"))
+            for call in calls if call.get("args", {}).get("target")
+        }
+        self.assertEqual(target_specs, {("key", "red")})
+        self.assertTrue(any(
+            call["name"] == "Done"
+            and call["args"]["target"]["object"] == "key"
+            and call["args"]["target"]["color"] == "red"
+            for call in calls
+        ))
+        self.assertFalse(any(call["name"] == "PickUp" for call in calls))
+
+    def test_get_to_pickable_object_is_navigation_not_pickup(self):
+        calls = TaskDependencyResolver().candidate_calls("get to the red key")
+        self.assertTrue(any(
+            call["name"] == "Done"
+            and call["args"]["target"]["object"] == "key"
+            and call["args"]["target"]["color"] == "red"
+            for call in calls
+        ))
+        self.assertFalse(any(call["name"] == "PickUp" for call in calls))
+
     def test_explicit_door_color_excludes_other_observed_door_colors(self):
         class Belief:
             known_map = {
