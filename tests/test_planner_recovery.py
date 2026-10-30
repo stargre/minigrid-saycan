@@ -99,6 +99,11 @@ class PlannerRecoveryTests(unittest.TestCase):
         self.assertEqual(result["record"]["call"]["name"], "Done")
         self.assertTrue(result["record"]["terminal_priority"])
         self.assertFalse(result["record"]["zero_score_fallback"])
+        self.assertEqual(result["record"]["selected_candidate_id"], done["id"])
+        self.assertEqual(result["record"]["selection_policy"], "terminal_priority")
+        self.assertEqual(
+            result["record"]["candidate_rankings"][0]["id"], explore["id"]
+        )
         self.assertIn(
             "priority: feasible terminal Done action",
             result["record"]["relevance_rationale"],
@@ -160,6 +165,61 @@ class PlannerRecoveryTests(unittest.TestCase):
         planner._execute_skill_to_terminal.assert_called_once_with(explore)
         self.assertEqual(result["record"]["call"]["name"], "Explore")
         self.assertFalse(result["record"]["terminal_priority"])
+
+
+    def test_conditional_door_open_is_not_an_unconditional_task_subgoal(self):
+        planner = self.planner()
+        planner.runtime.belief.completed_subgoals = ["pick", "pickup", "place"]
+        planner.history = [{"call": {"name": "PickUp"}}]
+
+        conditional_task = (
+            "Grab the red ball and put it above the green goal; "
+            "open the yellow door if needed."
+        )
+        self.assertTrue(planner._task_success(conditional_task))
+
+        mandatory_task = (
+            "Grab the red ball, open the yellow door, "
+            "and put it above the green goal."
+        )
+        self.assertFalse(planner._task_success(mandatory_task))
+
+    def test_candidate_ranking_trace_contains_relevance_and_feasibility(self):
+        planner = self.planner()
+        explore = {
+            "id": "Explore", "name": "Explore", "args": {},
+            "description": "Explore the environment",
+        }
+        pickup = {
+            "id": "PickUp:ball:red", "name": "PickUp",
+            "args": {"target": {"object": "ball", "color": "red"}},
+            "description": "Pick up the red ball",
+        }
+        planner._candidate_pool = Mock(return_value=[
+            (explore, {"feasibility": 1.0, "reason": "frontier remains"}),
+            (pickup, {"feasibility": 0.8, "reason": "target is reachable"}),
+        ])
+        planner.relevance.score.return_value = {
+            explore["id"]: {"relevance": 0.2, "rationale": "Explore is secondary"},
+            pickup["id"]: {"relevance": 0.9, "rationale": "Acquire requested object"},
+        }
+        planner._execute_skill_to_terminal = Mock(return_value={
+            "success": True, "status": "skill_complete", "low_level_actions": 1,
+        })
+
+        result = planner.step("pick up the red ball")
+
+        ranking = result["record"]["candidate_rankings"]
+        self.assertEqual(
+            [item["id"] for item in ranking],
+            [pickup["id"], explore["id"]],
+        )
+        self.assertEqual(ranking[0]["score"], 0.72)
+        self.assertEqual(ranking[0]["feasibility"], 0.8)
+        self.assertEqual(
+            result["record"]["selection_policy"],
+            "max_relevance_times_feasibility",
+        )
 
     def test_infeasible_candidates_are_not_sent_to_relevance_scorer(self):
         planner = self.planner()
