@@ -50,7 +50,7 @@ class SkillFeasibilityEvaluator:
             score = float(self._has_frontier())
             reason = "A reachable frontier remains." if score else "No known unexplored frontier remains."
         elif name == "Find":
-            if self._held_matches(target):
+            if target is not None and self._held_matches(target):
                 score = 0.0
                 reason = "Target is already held; no search is required."
             else:
