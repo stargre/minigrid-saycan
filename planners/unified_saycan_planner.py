@@ -266,8 +266,29 @@ class UnifiedSayCanPlanner:
 
         call = selected["call"]
         result = self._execute_skill_to_terminal(call)
+        candidate_rankings = [
+            {
+                "id": item["call"]["id"],
+                "name": item["call"]["name"],
+                "args": item["call"].get("args", {}),
+                "relevance": item["relevance"],
+                "feasibility": item["feasibility"],
+                "score": item["score"],
+                "rationale": item["rationale"],
+                "feasibility_reason": item["feasibility_reason"],
+            }
+            for item in scored
+        ]
+        selection_policy = (
+            "terminal_priority" if terminal_priority
+            else "zero_score_fallback" if zero_score_fallback
+            else "max_relevance_times_feasibility"
+        )
         record = {
             "round": len(self.history) + 1, "call": call,
+            "selected_candidate_id": call["id"],
+            "selection_policy": selection_policy,
+            "candidate_rankings": candidate_rankings,
             "relevance": selected["relevance"], "feasibility": selected["feasibility"],
             "score": selected["score"], "zero_score_fallback": zero_score_fallback,
             "terminal_priority": terminal_priority,
@@ -336,6 +357,21 @@ class UnifiedSayCanPlanner:
         result = self._execute_skill_to_terminal(call)
         record = {
             "round": len(self.history) + 1, "call": call,
+            "selected_candidate_id": call["id"],
+            "selection_policy": "deterministic_recovery",
+            "candidate_rankings": [
+                {
+                    "id": candidate["id"],
+                    "name": candidate["name"],
+                    "args": candidate.get("args", {}),
+                    "relevance": None,
+                    "feasibility": float(candidate_assessment["feasibility"]),
+                    "score": None,
+                    "rationale": "Not scored by Qwen; selected by deterministic recovery.",
+                    "feasibility_reason": candidate_assessment["reason"],
+                }
+                for candidate, candidate_assessment in feasible
+            ],
             "relevance": 0.0, "feasibility": float(assessment["feasibility"]),
             "score": 0.0, "zero_score_fallback": True,
             "relevance_rationale": "Deterministic recovery: no feasible candidate received a positive relevance score.",
@@ -356,9 +392,19 @@ class UnifiedSayCanPlanner:
         if any(word in text for word in ("place", "put", "drop", "set down")):
             if self.runtime.belief.inventory_status != "empty" or not ({"place", "drop"} & done):
                 return False
-        if "unlock" in text and not ({"unlock_door", "open_door"} & done):
+        # Conditional instructions such as "open the door if needed" do not
+        # impose an unconditional door-open subgoal. If opening is actually
+        # necessary to complete placement/navigation, the environment-grounded
+        # skill chain will still have to open it before the task can succeed.
+        door_action_optional = bool(
+            re.search(
+                r"\\b(?:if|when)\\s+(?:it\\s+is\\s+)?(?:needed|necessary)\\b",
+                text,
+            )
+        )
+        if "unlock" in text and not door_action_optional and not ({"unlock_door", "open_door"} & done):
             return False
-        if "open" in text and "door" in text and not ({"open_door", "unlock_door"} & done):
+        if "open" in text and "door" in text and not door_action_optional and not ({"open_door", "unlock_door"} & done):
             return False
         target_specs = parse_target_specs(task)
         pickup_targets = [
