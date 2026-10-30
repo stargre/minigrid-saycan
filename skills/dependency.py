@@ -67,6 +67,29 @@ class TaskDependencyResolver:
 
     def parse_targets(self, task: str, belief=None) -> list[TargetSpec]:
         targets = parse_target_specs(task)
+        text = str(task).lower()
+
+        # Official Fetch missions name exactly one color/type target, while
+        # the observation may contain several distractor keys and balls.
+        # Restrict Fetch candidate generation to the explicitly requested
+        # pickable target before adding any objects from the belief map.
+        fetch_intent = (
+            "fetch" in text
+            or bool(re.search(
+                r"\\bget\\s+(?:a|the)\\s+"
+                r"(?:(?:red|blue|green|purple|yellow|grey|gray)\\s+)?"
+                r"(?:key|ball)\\b",
+                text,
+            ))
+        )
+        if fetch_intent:
+            explicit_fetch_targets = [
+                item for item in targets
+                if item.object_name in PICKABLE_OBJECTS
+            ]
+            if explicit_fetch_targets:
+                return explicit_fetch_targets
+
         seen = {item.key for item in targets}
 
         if belief is not None:
