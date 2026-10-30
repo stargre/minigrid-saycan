@@ -61,6 +61,13 @@ class MultiSkillEvaluationTests(unittest.TestCase):
         self.assertTrue(EVAL.order_constraints("T4", correct, True)["passed"])
         self.assertFalse(EVAL.order_constraints("T4", incorrect, True)["passed"])
 
+    def test_t5_conditional_wording_still_requires_open_before_placement_in_this_layout(self):
+        with_open = ["Find", "OpenDoor", "PickUp", "PlaceNear"]
+        without_open = ["Find", "PickUp", "PlaceNear"]
+
+        self.assertTrue(EVAL.order_constraints("T5", with_open, True)["passed"])
+        self.assertFalse(EVAL.order_constraints("T5", without_open, True)["passed"])
+
     def test_t1_t3_require_pickup_and_open_before_placement_without_ordering_each_other(self):
         pickup_first = ["PickUp", "OpenDoor", "PlaceNear"]
         door_first = ["OpenDoor", "PickUp", "PlaceNear"]
