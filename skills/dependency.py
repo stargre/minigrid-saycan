@@ -101,10 +101,23 @@ class TaskDependencyResolver:
                 "arrive at", "get to", "cross to",
             )
         )
+        navigation_only = not any(
+            word in text
+            for word in (
+                "find", "search", "locate", "open", "unlock", "pick",
+                "take", "grab", "carry", "fetch", "place", "put", "drop",
+                "move", "clear",
+            )
+        )
         goto_object_intent = (
             object_movement_intent
             and not acquisition_intent
+            and navigation_only
             and len(explicit_object_targets) == 1
+            and all(
+                item.object_name in PICKABLE_OBJECTS
+                for item in targets
+            )
         )
         if goto_object_intent:
             return explicit_object_targets
@@ -178,17 +191,30 @@ class TaskDependencyResolver:
         )
         # GoToDoor missions use phrases such as "go to the red door".
         # They require the terminal Done action, not opening the door.
+        navigation_only = not any(
+            word in text
+            for word in (
+                "find", "search", "locate", "open", "unlock", "pick",
+                "take", "grab", "carry", "fetch", "place", "put", "drop",
+                "move", "clear",
+            )
+        )
         object_navigation_intent = (
             movement_intent
             and not pick_verbs
+            and navigation_only
             and any(target.object_name in PICKABLE_OBJECTS for target in targets)
+            and all(target.object_name in PICKABLE_OBJECTS for target in targets)
+        )
+        door_navigation_intent = (
+            movement_intent
+            and navigation_only
+            and any(target.object_name == "door" for target in targets)
+            and all(target.object_name == "door" for target in targets)
         )
         done_intent = (
-            any(word in text for word in ("done", "finish", "complete", "go to the door", "reach the door"))
-            or (
-                movement_intent
-                and any(target.object_name == "door" for target in targets)
-            )
+            any(word in text for word in ("done", "finish", "complete"))
+            or door_navigation_intent
             or object_navigation_intent
         )
         goal_entry_intent = any(

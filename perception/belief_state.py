@@ -84,10 +84,16 @@ class BeliefState:
                 dx, dy = self._world_offset(forward, lateral, direction)
                 pos = (self.agent_pos[0] + dx, self.agent_pos[1] + dy)
 
-                if cell["object"] == "agent":
-                    # The agent occludes the underlying tile. Preserve the
-                    # last observation of that tile (e.g. an open door or
-                    # green goal) instead of rewriting it as empty floor.
+                # MiniGrid reserves the bottom-centre observation cell for
+                # the agent. When the gripper is empty it encodes an empty
+                # cell; while carrying, it encodes the *held object* there
+                # (MiniGridEnv.gen_obs_grid), not an object in the world map.
+                # Always treat this ego cell as an occlusion and preserve the
+                # underlying terrain. Otherwise a carried key is written at
+                # agent_pos and path finding concludes that the agent stands
+                # on a non-walkable object.
+                ego_cell = x == center and y == height - 1
+                if ego_cell or cell["object"] == "agent":
                     previous_cell = self.known_map.get(pos)
                     if previous_cell is None:
                         previous_cell = {

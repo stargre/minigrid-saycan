@@ -1,8 +1,19 @@
 # MiniGrid SayCan — Skill Library v1.0
 
-A modular, observation-grounded SayCan-style planning system for MiniGrid. The planner selects semantic skills; deterministic controllers execute primitive actions through one runtime gateway; a belief state is updated from observations and action history.
+A modular, observation-grounded SayCan reproduction for MiniGrid. The planner
+scores the same semantic skill candidates with task relevance (**Say**) and
+observation-grounded affordance (**Can**), selects the maximum product, executes
+a closed-loop skill through one runtime gateway, updates belief, and replans.
 
-> Validation scope: the custom SayCanGrid task and the official MiniGrid DoorKey acceptance suite are separate test targets. Passing one does not imply support for every MiniGrid task family.
+> Current acceptance scope: Empty, GoToDoor, GoToObject, Fetch, PutNear, Unlock
+> and DoorKey. The deterministic affordance estimator is a model-based MiniGrid
+> substitute for SayCan's learned value functions. Keyword scoring is an
+> offline baseline and must not be reported as an LLM experiment.
+
+**Verified baseline:** 73/73 unit tests and 140/140 official MiniGrid episodes
+(20 seeds x 7 families) on Python 3.12.7 and MiniGrid 3.2.0. See
+[the acceptance protocol](docs/MINIGRID_ACCEPTANCE.md) for criteria, limitations
+and the separate Qwen status.
 
 ## Architecture
 
@@ -52,6 +63,8 @@ Task text → UnifiedSayCanPlanner → dependency resolution + feasibility + rel
 - **scripts/26_official_putnear_acceptance.py** — official PutNear integration tests.
 - **scripts/27_official_fetch_qwen_e2e.py** — Qwen-API-only Fetch end-to-end tests with per-action GIF recording and post-run oracle checks.
 - **scripts/28_official_gotoobject_qwen_e2e.py** — Qwen-API-only GoToObject end-to-end tests with per-action GIF recording and post-run oracle checks.
+- **scripts/29_official_gotodoor_qwen_e2e.py** — Qwen-API-only GoToDoor end-to-end tests with per-action GIF recording and post-run oracle checks.
+- **scripts/30_minigrid_saycan_acceptance.py** — unified strict acceptance over seven official task families, with smoke/standard/extended profiles.
 - **tests/test_fetch_task_contract.py** — Fetch mission parsing and distractor-target filtering regressions.
 - **scripts/08_saycan_planner_test.py** — one end-to-end custom task; accepts SEED.
 - **scripts/09_batch_evaluation.py** — five task-language variants with CSV/JSON metrics.
@@ -64,6 +77,10 @@ Python 3.10+ is recommended.
 
     python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
+For the exact versions used by the recorded acceptance result:
+
+    python -m pip install -r requirements-tested.txt
+
 ## Verification commands
 
     python -m unittest discover -s tests -v
@@ -75,6 +92,8 @@ Python 3.10+ is recommended.
     python scripts/23_official_doorkey_acceptance.py
     python scripts/25_official_basic_env_acceptance.py
     python scripts/26_official_putnear_acceptance.py --scorer keyword --seeds 0 1 2
+    python scripts/30_minigrid_saycan_acceptance.py --profile standard
+    python scripts/30_minigrid_saycan_acceptance.py --profile extended
 
     # Qwen API is required; this runner never switches to keyword scoring.
     export DASHSCOPE_API_KEY="YOUR_DASHSCOPE_API_KEY"
@@ -100,6 +119,10 @@ Multi-seed regression:
 
 To use Qwen, configure DASHSCOPE_API_KEY and inject QwenSkillRelevanceScorer into UnifiedSayCanPlanner. With the key unset, the default scorer is offline keyword scoring; do not report that as an LLM-planner experiment.
 
+The unified Qwen gate requires real API use and fails if any request falls back:
+
+    python scripts/30_minigrid_saycan_acceptance.py --scorer qwen --profile smoke
+
 The official Fetch demo is deliberately Qwen-API-only: it requires DASHSCOPE_API_KEY, records the API request count, fails if the planner falls back to keyword scoring, and writes one trajectory GIF plus final frame and JSON traces per environment/seed. Qwen scores the next semantic skill; deterministic feasibility supplies the observation-grounded affordance score. The combined relevance × feasibility score selects a skill, whose controller executes primitive actions through ObservationRuntime before the planner updates its belief and replans. The Fetch mission target is hard-constrained during candidate generation so distractor objects cannot become pickup candidates.
 
 The official GoToObject demo is also Qwen-API-only and covers MiniGrid-GoToObject-6x6-N2-v0 and MiniGrid-GoToObject-8x8-N2-v0. Its mission target is hard-constrained against distractors. The intended skill sequence is Find → NavigateTo → Done: the object must remain unpicked, and acceptance requires the official environment to terminate with positive reward after the agent reaches the requested object and issues Done. The runner records per-action GIFs, Qwen requests, skill traces, and post-run oracle checks.
@@ -112,4 +135,8 @@ LLMs supply relevance scores only. Feasibility remains deterministic, and all ph
 
 ## Freeze policy
 
-Do not tag v1.0 as frozen until unit tests, smoke test, acceptance suite, all-skill behavior suite, hidden-state audit, 20-seed custom-task regression, five task variants and the 10-case official DoorKey suite pass on the refactored commit. Preserve logs and record Python/dependency versions. Other official MiniGrid families require their own acceptance tests.
+Do not tag v1.0 as frozen until unit tests, the unified extended acceptance,
+all-skill behavior suite, hidden-state audit, custom-task regression and the
+intended LLM-backed acceptance pass on the same commit. Preserve JSON traces and
+record Python/dependency versions. Passing the offline baseline alone is not an
+LLM SayCan result.

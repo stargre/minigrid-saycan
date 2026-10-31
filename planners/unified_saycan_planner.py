@@ -35,6 +35,11 @@ def _explicit_find_targets(task):
 
 
 class UnifiedSayCanPlanner:
+    # Navigation completion is pose-dependent. A later pickup/search can move
+    # the agent away, so NavigateTo must become selectable again when its
+    # feasibility changes. Other completed calls represent persistent task
+    # progress and remain suppressed.
+    REPEATABLE_SKILLS = {"NavigateTo"}
     PROGRESS_STATUSES = {"action_executed", "searching", "phase_complete"}
     TERMINAL_FAILURE_STATUSES = {
         "target_not_found", "exploration_exhausted", "exploration_stalled",
@@ -204,9 +209,11 @@ class UnifiedSayCanPlanner:
                 "candidate_diagnostics": candidate_diagnostics,
             }
 
-        # Ask the LLM only about skills that the deterministic feasibility
-        # evaluator says can execute now. Infeasible calls remain available as
-        # prerequisite sources, but cannot waste tokens or dominate relevance.
+        # SayCan scores the same candidate set along two independent axes:
+        # semantic relevance (Say) and physical affordance (Can). Keep
+        # infeasible candidates in the LLM request so the trace exposes both
+        # factors; their zero affordance makes the product zero and prevents
+        # execution.
         feasible_pool = [(call, assessment) for call, assessment in pool
                          if float(assessment["feasibility"]) > 0]
         if not feasible_pool:
@@ -217,7 +224,7 @@ class UnifiedSayCanPlanner:
                 "candidate_diagnostics": candidate_diagnostics,
             }
 
-        calls = [call for call, _ in feasible_pool]
+        calls = [call for call, _ in pool]
         relevance_source = type(self.relevance).__name__
         relevance_error = None
         try:
@@ -235,7 +242,7 @@ class UnifiedSayCanPlanner:
             relevance_error = f"{type(exc).__name__}: {error_text[:240]}"
             relevance_source = f"KeywordRelevanceScorer (API error: {type(exc).__name__})"
         scored = []
-        for call, assessment in feasible_pool:
+        for call, assessment in pool:
             item = relevance.get(call["id"], {"relevance": 0.0, "rationale": "Missing relevance score."})
             rel = float(item["relevance"])
             feasible = float(assessment["feasibility"])
@@ -254,7 +261,11 @@ class UnifiedSayCanPlanner:
         # success is verified separately from the environment's terminal reward.
         terminal = (
             next(
-                (item for item in scored if item["call"].get("name") == "Done"),
+                (
+                    item for item in scored
+                    if item["call"].get("name") == "Done"
+                    and item["feasibility"] > 0
+                ),
                 None,
             )
             if self._is_navigation_only_done_task(task)
@@ -321,7 +332,11 @@ class UnifiedSayCanPlanner:
         }
         self.history.append(record)
         status = result.get("status", "unknown")
-        if result.get("success") and status not in self.PROGRESS_STATUSES:
+        if (
+            result.get("success")
+            and status not in self.PROGRESS_STATUSES
+            and call.get("name") not in self.REPEATABLE_SKILLS
+        ):
             self.completed_ids.add(call["id"])
         elif status in self.TERMINAL_FAILURE_STATUSES or status == "max_actions_reached":
             self.blocked_ids[call["id"]] = self.runtime.belief.observation_count
@@ -407,7 +422,11 @@ class UnifiedSayCanPlanner:
         }
         self.history.append(record)
         status = result.get("status", "unknown")
-        if result.get("success") and status not in self.PROGRESS_STATUSES:
+        if (
+            result.get("success")
+            and status not in self.PROGRESS_STATUSES
+            and call.get("name") not in self.REPEATABLE_SKILLS
+        ):
             self.completed_ids.add(call["id"])
         elif status in self.TERMINAL_FAILURE_STATUSES or status == "max_actions_reached":
             self.blocked_ids[call["id"]] = self.runtime.belief.observation_count
@@ -469,16 +488,11 @@ class UnifiedSayCanPlanner:
         # Official MiniGrid GoToDoor missions require a terminal environment
         # success, not merely a successful Find/NavigateTo skill. The Done
         # action is the environment's task-completion interaction.
-        door_navigation_only = (
-            "door" in text
-            and goal_entry_intent
-            and not any(
-                word in text
-                for word in (
-                    "open", "unlock", "pick", "take", "grab", "place", "put",
-                    "drop", "find", "search", "locate",
-                )
-            )
+        navigation_only_done = self._is_navigation_only_done_task(task)
+        door_navigation_only = bool(
+            navigation_only_done
+            and target_specs
+            and all(spec.object_name == "door" for spec in target_specs)
         )
         if door_navigation_only:
             return bool(
@@ -491,12 +505,10 @@ class UnifiedSayCanPlanner:
         # as GoToDoor, but their target is a pickable object (key, ball, or box).
         # Merely finding or navigating next to the object is not task success;
         # the environment must confirm a positive-reward terminal transition.
-        object_navigation_only = (
-            goal_entry_intent
-            and any(spec.object_name in PICKABLE_OBJECTS for spec in target_specs)
-            and not acquisition_intent
-            and not release_intent
-            and not any(word in text for word in ("find", "search", "locate"))
+        object_navigation_only = bool(
+            navigation_only_done
+            and target_specs
+            and all(spec.object_name in PICKABLE_OBJECTS for spec in target_specs)
         )
         if object_navigation_only:
             done_issued = any(
