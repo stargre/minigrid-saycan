@@ -49,6 +49,7 @@ class UnifiedSayCanPlanner:
         "placement_cell_unknown", "placement_cell_occupied",
         "pickup_not_confirmed", "placement_not_confirmed",
         "open_not_confirmed", "unlock_not_confirmed", "episode_ended",
+        "no_clear_drop_cell",
     }
     # These failures end the current skill, not the whole task. The planner
     # blocks that exact call until new observations arrive and then re-scores.
@@ -56,6 +57,7 @@ class UnifiedSayCanPlanner:
         "target_not_found", "exploration_exhausted", "exploration_stalled",
         "no_known_path", "requires_key", "placement_cell_unknown",
         "placement_cell_occupied", "no_feasible_candidate",
+        "no_clear_drop_cell",
     }
     HARD_STOP_STATUSES = {
         "episode_ended", "max_actions_reached", "skill_timeout", "skill_stalled",
@@ -272,6 +274,7 @@ class UnifiedSayCanPlanner:
             else None
         )
         terminal_priority = terminal is not None
+        topology_transition = None
         if terminal_priority:
             selected = terminal
             selected["rationale"] = (
@@ -280,20 +283,44 @@ class UnifiedSayCanPlanner:
             ).strip()
             zero_score_fallback = False
         else:
-            # A zero relevance response must not dead-end an otherwise feasible
-            # planner. Use the strongest feasible candidate as a deterministic
-            # fallback, and make the fallback explicit in the history.
-            selected = next((item for item in scored if item["score"] > 0), None)
-            zero_score_fallback = selected is None
-            if selected is None:
-                selected = max(
-                    scored,
-                    key=lambda item: (item["feasibility"], item["call"]["id"]),
-                )
+            # Once a topology-changing prerequisite is physically ready, do
+            # not let another semantically attractive navigation call move the
+            # agent away from the door/obstacle. These candidates were created
+            # from observation-grounded blockers and still appear in the full
+            # Say/Can ranking; this priority only commits the already-reached
+            # interaction, analogous to terminal Done priority above.
+            topology_transition = next(
+                (
+                    item for item in scored
+                    if item["call"].get("name") in {
+                        "OpenDoor", "UnlockDoor", "MoveObstacle"
+                    }
+                    and item["feasibility"] > 0
+                ),
+                None,
+            )
+            if topology_transition is not None:
+                selected = topology_transition
                 selected["rationale"] = (
                     str(selected.get("rationale", ""))
-                    + " [fallback: all feasible candidates had zero relevance]"
+                    + " [priority: ready topology-changing prerequisite]"
                 ).strip()
+                zero_score_fallback = False
+            else:
+                # A zero relevance response must not dead-end an otherwise
+                # feasible planner. Use the strongest feasible candidate as a
+                # deterministic fallback, and make the fallback explicit.
+                selected = next((item for item in scored if item["score"] > 0), None)
+                zero_score_fallback = selected is None
+                if selected is None:
+                    selected = max(
+                        scored,
+                        key=lambda item: (item["feasibility"], item["call"]["id"]),
+                    )
+                    selected["rationale"] = (
+                        str(selected.get("rationale", ""))
+                        + " [fallback: all feasible candidates had zero relevance]"
+                    ).strip()
 
         call = selected["call"]
         result = self._execute_skill_to_terminal(call)
@@ -312,6 +339,8 @@ class UnifiedSayCanPlanner:
         ]
         selection_policy = (
             "terminal_priority" if terminal_priority
+            else "topology_transition_priority"
+            if topology_transition is not None
             else "zero_score_fallback" if zero_score_fallback
             else "max_relevance_times_feasibility"
         )

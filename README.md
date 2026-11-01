@@ -10,7 +10,7 @@ a closed-loop skill through one runtime gateway, updates belief, and replans.
 > substitute for SayCan's learned value functions. Keyword scoring is an
 > offline baseline and must not be reported as an LLM experiment.
 
-**Verified baseline:** 73/73 unit tests and 140/140 official MiniGrid episodes
+**Verified baseline:** 82/82 unit tests and 140/140 official MiniGrid episodes
 (20 seeds x 7 families) on Python 3.12.7 and MiniGrid 3.2.0. Qwen smoke
 acceptance also passed 7/7 on Python 3.12.15 with a valid DashScope setup. See
 [the acceptance protocol](docs/MINIGRID_ACCEPTANCE.md) for criteria, limitations
@@ -130,6 +130,13 @@ To inspect current behavior outside the accepted seven-family scope, use the
 [all-environment visual audit](docs/ALL_MINIGRID_VISUAL_AUDIT.md). With
 MiniGrid 3.2.0 it enumerates 82 registered environments and keeps failures,
 unsupported tasks and missing optional dependencies explicit.
+
+The observation-grounded traversal layer now treats ordinary closed doors and
+movable door blockers as implicit physical prerequisites. It opens each
+observed unlocked door, clears a blocking ball/box before occupying the gripper
+with a key, and releases a spent key before acquiring the mission target. These
+behaviors use only the belief map and remain distinct from dynamic-obstacle
+avoidance, which is not yet implemented.
 
 The official Fetch demo is deliberately Qwen-API-only: it requires DASHSCOPE_API_KEY, records the API request count, fails if the planner falls back to keyword scoring, and writes one trajectory GIF plus final frame and JSON traces per environment/seed. Qwen scores the next semantic skill; deterministic feasibility supplies the observation-grounded affordance score. The combined relevance × feasibility score selects a skill, whose controller executes primitive actions through ObservationRuntime before the planner updates its belief and replans. The Fetch mission target is hard-constrained during candidate generation so distractor objects cannot become pickup candidates.
 

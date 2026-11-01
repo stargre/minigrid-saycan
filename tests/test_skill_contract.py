@@ -184,6 +184,162 @@ class DependencyTests(unittest.TestCase):
         calls = TaskDependencyResolver().candidate_calls("open the yellow door")
         self.assertTrue(any(c["name"] == "OpenDoor" for c in calls))
 
+    def test_traversal_automatically_opens_each_observed_unlocked_door(self):
+        class Belief:
+            known_map = {
+                (1, 1): {"object": "door", "color": "blue", "state": "closed"},
+                (4, 1): {"object": "door", "color": "blue", "state": "closed"},
+                (6, 1): {"object": "goal", "color": "green", "state": "unknown"},
+            }
+
+            @staticmethod
+            def find_objects(object_name=None, color=None, state=None):
+                return [
+                    (pos, cell) for pos, cell in Belief.known_map.items()
+                    if (object_name is None or cell.get("object") == object_name)
+                    and (color is None or cell.get("color") == color)
+                    and (state is None or cell.get("state") == state)
+                ]
+
+        calls = TaskDependencyResolver().candidate_calls(
+            "traverse the rooms to get to the goal", Belief()
+        )
+        open_calls = [call for call in calls if call["name"] == "OpenDoor"]
+        self.assertEqual(
+            {tuple(call["args"]["position"]) for call in open_calls},
+            {(1, 1), (4, 1)},
+        )
+        self.assertEqual(len({call["id"] for call in open_calls}), 2)
+
+    def test_gotodoor_does_not_auto_open_observed_target(self):
+        class Belief:
+            known_map = {
+                (1, 1): {"object": "door", "color": "red", "state": "closed"},
+            }
+
+            @staticmethod
+            def find_objects(*args, **kwargs):
+                return []
+
+        calls = TaskDependencyResolver().candidate_calls(
+            "go to the red door", Belief()
+        )
+        self.assertFalse(any(call["name"] == "OpenDoor" for call in calls))
+
+    def test_non_target_object_blocking_door_becomes_move_candidate(self):
+        class Belief:
+            known_map = {
+                (1, 1): {"object": "ball", "color": "blue", "state": "unknown"},
+                (2, 1): {"object": "door", "color": "green", "state": "closed"},
+                (4, 1): {"object": "box", "color": "purple", "state": "unknown"},
+            }
+
+            @staticmethod
+            def find_objects(*args, **kwargs):
+                return []
+
+        calls = TaskDependencyResolver().candidate_calls(
+            "pick up the purple box", Belief()
+        )
+        move_calls = [call for call in calls if call["name"] == "MoveObstacle"]
+        self.assertEqual(len(move_calls), 1)
+        self.assertEqual(move_calls[0]["args"]["target"]["object"], "ball")
+        self.assertEqual(move_calls[0]["args"]["position"], [1, 1])
+
+    def test_requested_object_is_never_auto_relocated_as_obstacle(self):
+        class Belief:
+            known_map = {
+                (1, 1): {"object": "ball", "color": "blue", "state": "unknown"},
+                (2, 1): {"object": "door", "color": "green", "state": "closed"},
+            }
+
+            @staticmethod
+            def find_objects(*args, **kwargs):
+                return []
+
+        calls = TaskDependencyResolver().candidate_calls(
+            "pick up the blue ball", Belief()
+        )
+        self.assertFalse(any(call["name"] == "MoveObstacle" for call in calls))
+
+    def test_pickup_intent_does_not_pick_observed_distractors(self):
+        class Belief:
+            known_map = {
+                (1, 1): {"object": "ball", "color": "blue", "state": "unknown"},
+                (3, 1): {"object": "box", "color": "purple", "state": "unknown"},
+            }
+
+            @staticmethod
+            def find_objects(*args, **kwargs):
+                return []
+
+        calls = TaskDependencyResolver().candidate_calls(
+            "pick up the purple box", Belief()
+        )
+        pickup_targets = [
+            call["args"]["target"] for call in calls
+            if call["name"] == "PickUp"
+        ]
+        self.assertEqual(
+            {(target["object"], target.get("color")) for target in pickup_targets},
+            {("box", "purple")},
+        )
+
+    def test_only_observed_locked_door_color_adds_required_key(self):
+        class Belief:
+            known_map = {
+                (1, 1): {"object": "door", "color": "blue", "state": "open"},
+                (3, 1): {"object": "door", "color": "yellow", "state": "locked"},
+            }
+
+            @staticmethod
+            def find_objects(object_name=None, color=None, state=None):
+                return [
+                    (pos, cell) for pos, cell in Belief.known_map.items()
+                    if (object_name is None or cell.get("object") == object_name)
+                    and (color is None or cell.get("color") == color)
+                    and (state is None or cell.get("state") == state)
+                ]
+
+        calls = TaskDependencyResolver().candidate_calls(
+            "pick up the purple ball", Belief()
+        )
+        key_pickups = [
+            call for call in calls
+            if call["name"] == "PickUp"
+            and call["args"]["target"]["object"] == "key"
+        ]
+        self.assertEqual(
+            {call["args"]["target"].get("color") for call in key_pickups},
+            {"yellow"},
+        )
+
+    def test_spent_held_key_is_relocated_before_target_pickup(self):
+        class Belief:
+            held_object = {"object": "key", "color": "green", "state": "held"}
+            known_map = {
+                (1, 1): {"object": "door", "color": "green", "state": "open"},
+                (3, 1): {"object": "box", "color": "purple", "state": "unknown"},
+            }
+
+            @staticmethod
+            def find_objects(object_name=None, color=None, state=None):
+                return [
+                    (pos, cell) for pos, cell in Belief.known_map.items()
+                    if (object_name is None or cell.get("object") == object_name)
+                    and (color is None or cell.get("color") == color)
+                    and (state is None or cell.get("state") == state)
+                ]
+
+        calls = TaskDependencyResolver().candidate_calls(
+            "pick up the purple box", Belief()
+        )
+        self.assertTrue(any(
+            call["name"] == "MoveObstacle"
+            and call["args"]["target"]["object"] == "key"
+            for call in calls
+        ))
+
     def test_place_near_candidate(self):
         calls = TaskDependencyResolver().candidate_calls("Pick up the red ball and place it above the green goal")
         place = [c for c in calls if c["name"] == "PlaceNear"]
@@ -271,6 +427,35 @@ class FeasibilityTests(unittest.TestCase):
         self.assertEqual(assessment["feasibility"], 0.0)
         self.assertIn("already adjacent", assessment["reason"])
 
+    def test_precise_navigation_to_an_opened_door_is_not_repeated(self):
+        class Belief:
+            inventory_status = "empty"
+            held_object = None
+            agent_pos = (0, 0)
+            agent_dir = 0
+            known_map = {
+                (0, 0): {"object": "empty", "color": "unknown", "state": "unknown"},
+                (1, 0): {"object": "empty", "color": "unknown", "state": "unknown"},
+                (2, 0): {"object": "door", "color": "blue", "state": "open"},
+            }
+
+            def cell_at(self, position):
+                return self.known_map.get(tuple(position))
+
+        class Runtime:
+            belief = Belief()
+            terminated = False
+            truncated = False
+
+        call = make_call(
+            "NavigateTo",
+            target={"object": "door", "color": "blue"},
+            position=[2, 0],
+        )
+        assessment = SkillFeasibilityEvaluator(Runtime()).evaluate(call)
+        self.assertEqual(assessment["feasibility"], 0.0)
+        self.assertIn("already open", assessment["reason"])
+
     def test_explore_prerequisite_uses_canonical_skill_id(self):
         class Belief:
             inventory_status = "empty"
@@ -330,6 +515,39 @@ class FeasibilityTests(unittest.TestCase):
 
         self.assertEqual(assessment["feasibility"], 0.0)
         self.assertIn("already held", assessment["reason"])
+
+    def test_key_pickup_waits_for_obstacle_blocking_matching_lock(self):
+        class Belief:
+            inventory_status = "empty"
+            held_object = None
+            agent_pos = (0, 0)
+            agent_dir = 0
+            known_map = {
+                (0, 0): {"object": "empty", "color": "unknown", "state": "unknown"},
+                (1, 0): {"object": "key", "color": "green", "state": "unknown"},
+                (2, 0): {"object": "ball", "color": "blue", "state": "unknown"},
+                (3, 0): {"object": "door", "color": "green", "state": "locked"},
+                (0, 1): {"object": "empty", "color": "unknown", "state": "unknown"},
+            }
+
+            def cell_at(self, position):
+                return self.known_map.get(tuple(position))
+
+        class Runtime:
+            belief = Belief()
+            terminated = False
+            truncated = False
+
+        call = make_call(
+            "PickUp", target={"object": "key", "color": "green"}
+        )
+        assessment = SkillFeasibilityEvaluator(Runtime()).evaluate(call)
+        self.assertEqual(assessment["feasibility"], 0.0)
+        self.assertTrue(any(
+            item["name"] == "MoveObstacle"
+            and item["args"]["target"]["object"] == "ball"
+            for item in assessment["prerequisites"]
+        ))
 
 
 class RelevanceTests(unittest.TestCase):

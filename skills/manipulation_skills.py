@@ -6,17 +6,56 @@ from skills.target import PICKABLE_OBJECTS, TargetSpec, canonical_object
 from skills.placement import select_placement
 
 
+def select_clear_drop_cell(belief, navigator, obstacle_pos):
+    """Choose an observed empty cell that will not block a known doorway."""
+    source = tuple(obstacle_pos) if obstacle_pos is not None else None
+    agent = tuple(belief.agent_pos)
+    doors = [
+        tuple(pos) for pos, cell in belief.known_map.items()
+        if cell.get("object") == "door"
+        and cell.get("state") in {"closed", "locked"}
+    ]
+    candidates = []
+    for pos, cell in belief.known_map.items():
+        pos = tuple(pos)
+        if cell.get("object") not in {"empty", "floor"}:
+            continue
+        if pos in {agent, source}:
+            continue
+        if any(abs(pos[0] - door[0]) + abs(pos[1] - door[1]) <= 1 for door in doors):
+            continue
+        approaches = []
+        for dx, dy in DIRECTIONS:
+            approach = (pos[0] + dx, pos[1] + dy)
+            if not navigator._safe_walkable(belief.cell_at(approach)):
+                continue
+            path = navigator._find_path(agent, approach)
+            if path is not None:
+                approaches.append(len(path))
+        if not approaches:
+            continue
+        source_distance = (
+            abs(pos[0] - source[0]) + abs(pos[1] - source[1])
+            if source is not None else 0
+        )
+        candidates.append((min(approaches), source_distance, pos))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+    return candidates[0][2]
+
+
 class PickUpSkill(UnifiedSkill):
     name = "PickUp"
 
-    def step(self, target, **kwargs):
+    def step(self, target, position=None, **kwargs):
         spec = TargetSpec.from_value(target)
         held = getattr(self.belief, "held_object", None)
         if held and spec.matches(held):
             return self._result(True, "skill_complete", "The target is already held.", held_object=held)
         if self.belief.inventory_status != "empty":
             return self._result(False, "gripper_not_empty", "The gripper is not confirmed empty.")
-        pos, cell = self._nearest(spec.to_dict())
+        pos, cell = self._at_position(spec.to_dict(), position)
         if pos is None:
             return self._result(False, "target_not_found", "The target must be observed before pickup.")
         if canonical_object(cell.get("object")) not in PICKABLE_OBJECTS:
@@ -153,16 +192,42 @@ class MoveObstacleSkill(UnifiedSkill):
         self.place = PlaceNearSkill(runtime)
         self._phase = "pickup"
         self._active_key = None
+        self._source_pos = None
+        self._clear_drop_pos = None
 
-    def step(self, target, destination, relation="near", **kwargs):
+    def _reset(self):
+        self._phase = "pickup"
+        self._active_key = None
+        self._source_pos = None
+        self._clear_drop_pos = None
+        self.navigator.reset_target()
+
+    def step(
+        self, target, destination=None, relation="near", position=None,
+        **kwargs
+    ):
         target_spec = TargetSpec.from_value(target)
+        destination_key = (
+            TargetSpec.from_value(destination).key
+            if destination is not None else "clear_path"
+        )
+        position_key = (
+            tuple(int(value) for value in position)
+            if position is not None else None
+        )
         key = (
             target_spec.key,
-            TargetSpec.from_value(destination).key,
+            destination_key,
             str(relation).strip().lower(),
+            position_key,
         )
         if key != self._active_key:
-            self._active_key, self._phase = key, "pickup"
+            self._reset()
+            self._active_key = key
+            self._source_pos = position_key
+            if self._source_pos is None:
+                source, _ = self._nearest(target)
+                self._source_pos = source
 
         # The belief state is the source of truth for the phase transition.
         # A stale phase flag must never make MoveObstacle skip a required pickup.
@@ -172,7 +237,7 @@ class MoveObstacleSkill(UnifiedSkill):
             self._phase = "pickup"
 
         if self._phase == "pickup":
-            result = self.pickup.step(target)
+            result = self.pickup.step(target, position=position)
             held_after = getattr(self.belief, "held_object", None)
             holding_target_after = bool(
                 held_after and target_spec.matches(held_after)
@@ -203,14 +268,46 @@ class MoveObstacleSkill(UnifiedSkill):
             result["phase"] = "pickup"
             return result
 
-        result = self.place.step(
-            object=target,
-            target=destination,
-            relation=relation,
-        )
+        if destination is None:
+            if self._clear_drop_pos is None:
+                self._clear_drop_pos = select_clear_drop_cell(
+                    self.belief, self.navigator, self._source_pos
+                )
+            if self._clear_drop_pos is None:
+                return self._result(
+                    False, "no_clear_drop_cell",
+                    "No observed reachable empty cell can safely clear the doorway.",
+                    phase="place",
+                )
+            result = self.navigator.step_to_adjacent(self._clear_drop_pos)
+            if result.get("status") != "target_adjacent":
+                result["skill"] = self.name
+                result["phase"] = "place"
+                result["clear_drop_position"] = list(self._clear_drop_pos)
+                return result
+            action = self.runtime.execute_action(Actions.drop)
+            after = self.belief.cell_at(self._clear_drop_pos)
+            held_after = getattr(self.belief, "held_object", None)
+            success = bool(
+                after and target_spec.matches(after) and not held_after
+            )
+            result = self._result(
+                success,
+                "skill_complete" if success else "placement_not_confirmed",
+                "The obstacle was moved away from the doorway."
+                if success else "Obstacle relocation was not confirmed.",
+                actions_executed=action["actions_executed"],
+                clear_drop_position=list(self._clear_drop_pos),
+            )
+        else:
+            result = self.place.step(
+                object=target,
+                target=destination,
+                relation=relation,
+            )
         if result.get("success"):
-            self._phase = "pickup"
-            self._active_key = None
+            self.belief._mark_completed("move_obstacle")
+            self._reset()
         elif result.get("status") == "not_holding_object":
             # Resynchronize on the next controller tick instead of retaining
             # a place phase that contradicts the observed inventory.

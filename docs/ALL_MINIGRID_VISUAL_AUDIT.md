@@ -64,18 +64,39 @@ Tested with MiniGrid 3.2.0 and the offline scorer:
 |---|---:|
 | Registered environments | 82 |
 | Attempted | 75 |
-| Passed | 41 |
-| Failed | 34 |
+| Passed | 54 |
+| Failed | 21 |
 | Unsupported (empty mission) | 1 |
 | Unavailable (missing WFC extras) | 6 |
 
 This single-seed catalog run is an effect audit, not a statistical acceptance
 result. The strict seven-family suite remains the regression gate.
 
-Major remaining capability gaps exposed by the audit include dynamic-obstacle
-reaction, KeyCorridor/locked-room acquisition chains, multi-room traversal
-through unrequested closed doors, obstructed-maze obstacle relocation and
-ordered multi-door tasks. WFC environments require `minigrid[wfc]` before they
-can be instantiated. `MiniGrid-Playground-v0` has no mission and therefore
-cannot be evaluated as a language-conditioned SayCan task without a supplied
-instruction.
+The optimized seed-0 run passes every registered KeyCorridor and MultiRoom
+variant. It also passes BlockedUnlockPickup, UnlockPickup and the basic
+ObstructedMaze-1Dl task by treating ordinary doors, door blockers and spent
+keys as observation-grounded physical prerequisites.
+
+The remaining capability gaps include dynamic-obstacle reaction, LockedRoom's
+cross-room key search, multi-obstacle ObstructedMaze variants and ordered
+RedBlueDoors interaction. Dynamic obstacles move independently between agent
+steps and therefore need a reactive time-dependent policy; the current belief
+map and path planner intentionally model static topology. WFC environments
+require `minigrid[wfc]` before they can be instantiated.
+`MiniGrid-Playground-v0` has no mission and therefore cannot be evaluated as a
+language-conditioned SayCan task without a supplied instruction.
+
+## Why and where traversal was fixed
+
+- `skills/dependency.py` derives per-position `OpenDoor` and `MoveObstacle`
+  calls from observed topology. Call IDs include positions, so opening one door
+  does not suppress another same-colored door.
+- `skills/feasibility.py` turns physical ordering into Can constraints: a
+  blocker must be cleared before its lock's key occupies the gripper, and
+  already-open doors cannot attract stale navigation.
+- `skills/manipulation_skills.py` selects an observed reachable drop cell away
+  from still-closed doors, moves blocking balls/boxes, and releases a spent key
+  before target pickup.
+- `planners/unified_saycan_planner.py` commits a ready topology-changing
+  interaction before unrelated navigation moves the agent away. Every
+  candidate still appears in the complete Say/Can ranking and trace.

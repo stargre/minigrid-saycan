@@ -7,8 +7,8 @@ from skills.target import TargetSpec
 class OpenDoorSkill(UnifiedSkill):
     name = "OpenDoor"
 
-    def step(self, target, **kwargs):
-        pos, cell = self._nearest(target)
+    def step(self, target, position=None, **kwargs):
+        pos, cell = self._at_position(target, position)
         if pos is None:
             return self._result(False, "target_not_found", "Find the door before opening it.")
         state = cell.get("state", "unknown")
@@ -35,8 +35,8 @@ class OpenDoorSkill(UnifiedSkill):
 class UnlockDoorSkill(UnifiedSkill):
     name = "UnlockDoor"
 
-    def step(self, target, **kwargs):
-        pos, cell = self._nearest(target)
+    def step(self, target, position=None, **kwargs):
+        pos, cell = self._at_position(target, position)
         if pos is None:
             return self._result(False, "target_not_found", "Find the door before unlocking it.")
         state = cell.get("state", "unknown")
