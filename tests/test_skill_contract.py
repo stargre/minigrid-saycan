@@ -202,6 +202,48 @@ class DependencyTests(unittest.TestCase):
         calls = TaskDependencyResolver().candidate_calls("open the yellow door")
         self.assertTrue(any(c["name"] == "OpenDoor" for c in calls))
 
+    def test_locked_room_phrase_adds_the_room_entrance_as_a_door_target(self):
+        targets = TaskDependencyResolver().parse_targets(
+            "get the yellow key from the grey room, unlock the yellow door "
+            "and go to the goal"
+        )
+        self.assertTrue(any(
+            target.object_name == "door" and target.color == "grey"
+            for target in targets
+        ))
+
+    def test_ordered_door_task_only_exposes_the_first_unfinished_door(self):
+        class Belief:
+            known_map = {
+                (1, 1): {"object": "door", "color": "red", "state": "closed"},
+                (4, 1): {"object": "door", "color": "blue", "state": "closed"},
+            }
+
+            @staticmethod
+            def find_objects(object_name=None, color=None, state=None):
+                return [
+                    (pos, cell) for pos, cell in Belief.known_map.items()
+                    if (object_name is None or cell.get("object") == object_name)
+                    and (color is None or cell.get("color") == color)
+                    and (state is None or cell.get("state") == state)
+                ]
+
+        task = "open the red door then the blue door"
+        calls = TaskDependencyResolver().candidate_calls(task, Belief())
+        open_colors = {
+            call["args"]["target"].get("color")
+            for call in calls if call["name"] == "OpenDoor"
+        }
+        self.assertEqual(open_colors, {"red"})
+
+        Belief.known_map[(1, 1)]["state"] = "open"
+        calls = TaskDependencyResolver().candidate_calls(task, Belief())
+        open_colors = {
+            call["args"]["target"].get("color")
+            for call in calls if call["name"] == "OpenDoor"
+        }
+        self.assertEqual(open_colors, {"blue"})
+
     def test_traversal_automatically_opens_each_observed_unlocked_door(self):
         class Belief:
             known_map = {
