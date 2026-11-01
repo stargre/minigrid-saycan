@@ -11,7 +11,8 @@ a closed-loop skill through one runtime gateway, updates belief, and replans.
 > offline baseline and must not be reported as an LLM experiment.
 
 **Verified baseline:** 73/73 unit tests and 140/140 official MiniGrid episodes
-(20 seeds x 7 families) on Python 3.12.7 and MiniGrid 3.2.0. See
+(20 seeds x 7 families) on Python 3.12.7 and MiniGrid 3.2.0. Qwen smoke
+acceptance also passed 7/7 on Python 3.12.15 with a valid DashScope setup. See
 [the acceptance protocol](docs/MINIGRID_ACCEPTANCE.md) for criteria, limitations
 and the separate Qwen status.
 
@@ -65,6 +66,7 @@ Task text → UnifiedSayCanPlanner → dependency resolution + feasibility + rel
 - **scripts/28_official_gotoobject_qwen_e2e.py** — Qwen-API-only GoToObject end-to-end tests with per-action GIF recording and post-run oracle checks.
 - **scripts/29_official_gotodoor_qwen_e2e.py** — Qwen-API-only GoToDoor end-to-end tests with per-action GIF recording and post-run oracle checks.
 - **scripts/30_minigrid_saycan_acceptance.py** — unified strict acceptance over seven official task families, with smoke/standard/extended profiles.
+- **scripts/31_all_minigrid_envs_gif_audit.py** — enumerates the complete installed MiniGrid catalog and writes GIFs, final frames, JSON traces and an HTML gallery.
 - **tests/test_fetch_task_contract.py** — Fetch mission parsing and distractor-target filtering regressions.
 - **scripts/08_saycan_planner_test.py** — one end-to-end custom task; accepts SEED.
 - **scripts/09_batch_evaluation.py** — five task-language variants with CSV/JSON metrics.
@@ -94,6 +96,7 @@ For the exact versions used by the recorded acceptance result:
     python scripts/26_official_putnear_acceptance.py --scorer keyword --seeds 0 1 2
     python scripts/30_minigrid_saycan_acceptance.py --profile standard
     python scripts/30_minigrid_saycan_acceptance.py --profile extended
+    python scripts/31_all_minigrid_envs_gif_audit.py
 
     # Qwen API is required; this runner never switches to keyword scoring.
     export DASHSCOPE_API_KEY="YOUR_DASHSCOPE_API_KEY"
@@ -122,6 +125,11 @@ To use Qwen, configure DASHSCOPE_API_KEY and inject QwenSkillRelevanceScorer int
 The unified Qwen gate requires real API use and fails if any request falls back:
 
     python scripts/30_minigrid_saycan_acceptance.py --scorer qwen --profile smoke
+
+To inspect current behavior outside the accepted seven-family scope, use the
+[all-environment visual audit](docs/ALL_MINIGRID_VISUAL_AUDIT.md). With
+MiniGrid 3.2.0 it enumerates 82 registered environments and keeps failures,
+unsupported tasks and missing optional dependencies explicit.
 
 The official Fetch demo is deliberately Qwen-API-only: it requires DASHSCOPE_API_KEY, records the API request count, fails if the planner falls back to keyword scoring, and writes one trajectory GIF plus final frame and JSON traces per environment/seed. Qwen scores the next semantic skill; deterministic feasibility supplies the observation-grounded affordance score. The combined relevance × feasibility score selects a skill, whose controller executes primitive actions through ObservationRuntime before the planner updates its belief and replans. The Fetch mission target is hard-constrained during candidate generation so distractor objects cannot become pickup candidates.
 
