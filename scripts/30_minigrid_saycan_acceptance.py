@@ -218,7 +218,7 @@ def evaluate_after_run(env, family, runtime):
 
 
 def run_case(family, env_id, seed, scorer_name, max_actions,
-             max_high_level_steps):
+             max_high_level_steps, affordance_model=None):
     started = time.perf_counter()
     env = None
     try:
@@ -241,6 +241,7 @@ def run_case(family, env_id, seed, scorer_name, max_actions,
             relevance_scorer=scorer,
             max_actions=max_actions,
             max_skill_actions=max_actions,
+            affordance_model=affordance_model,
         )
         result = planner.run(
             mission, max_high_level_steps=max_high_level_steps
@@ -272,6 +273,8 @@ def run_case(family, env_id, seed, scorer_name, max_actions,
             "experiment_kind": (
                 "llm_saycan" if scorer_name == "qwen" else "offline_baseline"
             ),
+            "affordance_mode": planner.affordance_mode,
+            "affordance_model": str(affordance_model) if affordance_model else None,
             "passed": passed,
             "planner_success": bool(result.get("success")),
             "planner_status": result.get("status"),
@@ -294,6 +297,9 @@ def run_case(family, env_id, seed, scorer_name, max_actions,
                     "status": record.get("result", {}).get("status"),
                     "relevance": record.get("relevance"),
                     "feasibility": record.get("feasibility"),
+                    "hard_feasibility": record.get("hard_feasibility"),
+                    "learned_affordance": record.get("learned_affordance"),
+                    "affordance_source": record.get("affordance_source"),
                     "combined_score": record.get("score"),
                     "selection_policy": record.get("selection_policy"),
                     "relevance_source": record.get("relevance_source"),
@@ -317,7 +323,7 @@ def run_case(family, env_id, seed, scorer_name, max_actions,
             env.close()
 
 
-def build_summary(records, scorer, profile):
+def build_summary(records, scorer, profile, affordance_model=None):
     by_family = {}
     for family in CASES:
         family_records = [r for r in records if r["family"] == family]
@@ -349,6 +355,10 @@ def build_summary(records, scorer, profile):
             "llm_saycan" if scorer == "qwen" else "offline_baseline"
         ),
         "profile": profile,
+        "affordance_mode": (
+            "learned_hard_mask" if affordance_model else "deterministic"
+        ),
+        "affordance_model": str(affordance_model) if affordance_model else None,
         "cases": len(records),
         "passed": passed,
         "failed": len(records) - passed,
@@ -377,6 +387,10 @@ def main():
     parser.add_argument("--max-actions", type=int, default=1200)
     parser.add_argument("--max-high-level-steps", type=int, default=250)
     parser.add_argument(
+        "--affordance-model",
+        help="Trained JSON model; enables hard-mask x learned-affordance Can scores.",
+    )
+    parser.add_argument(
         "--output", default="outputs/minigrid_acceptance/report.json"
     )
     args = parser.parse_args()
@@ -397,6 +411,7 @@ def main():
                 scorer_name=args.scorer,
                 max_actions=args.max_actions,
                 max_high_level_steps=args.max_high_level_steps,
+                affordance_model=args.affordance_model,
             )
             records.append(record)
             marker = "PASS" if record.get("passed") else "FAIL"
@@ -406,7 +421,9 @@ def main():
                 f"actions={record.get('low_level_actions')}"
             )
 
-    summary = build_summary(records, args.scorer, args.profile)
+    summary = build_summary(
+        records, args.scorer, args.profile, args.affordance_model
+    )
     report = {"summary": summary, "records": records}
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

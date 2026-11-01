@@ -186,6 +186,9 @@ def compact_history(history):
             "low_level_actions": record.get("result", {}).get("low_level_actions"),
             "relevance": record.get("relevance"),
             "affordance": record.get("feasibility"),
+            "hard_affordance": record.get("hard_feasibility"),
+            "learned_affordance": record.get("learned_affordance"),
+            "affordance_source": record.get("affordance_source"),
             "combined_score": record.get("score"),
             "selection_policy": record.get("selection_policy"),
             "relevance_source": record.get("relevance_source"),
@@ -197,7 +200,7 @@ def compact_history(history):
 
 def run_case(env_id, seed, scorer_name, output_root, max_actions,
              max_high_level_steps, max_gif_frames, gif_max_width,
-             gif_duration_ms):
+             gif_duration_ms, affordance_model=None):
     started = time.perf_counter()
     case_dir = output_root / slugify(env_id) / f"seed_{seed}"
     env = None
@@ -268,6 +271,7 @@ def run_case(env_id, seed, scorer_name, output_root, max_actions,
             relevance_scorer=scorer,
             max_actions=action_budget,
             max_skill_actions=action_budget,
+            affordance_model=affordance_model,
         )
         result = planner.run(
             mission, max_high_level_steps=max_high_level_steps
@@ -314,6 +318,8 @@ def run_case(env_id, seed, scorer_name, output_root, max_actions,
             "qwen_api_requests": getattr(scorer, "request_count", 0),
             "qwen_api_error_fallbacks": len(fallbacks),
             "qwen_parse_retries": getattr(scorer, "parse_retry_count", 0),
+            "affordance_mode": planner.affordance_mode,
+            "affordance_model": str(affordance_model) if affordance_model else None,
             "skill_trace": compact_history(history),
             "trajectory_gif": str(gif_path) if gif_path else None,
             "final_frame": str(png_path) if png_path else None,
@@ -442,6 +448,7 @@ def main():
     parser.add_argument("--max-gif-frames", type=int, default=160)
     parser.add_argument("--gif-max-width", type=int, default=320)
     parser.add_argument("--gif-duration-ms", type=int, default=160)
+    parser.add_argument("--affordance-model", help="Trained affordance JSON model.")
     parser.add_argument("--output-dir", default="outputs/all_minigrid_visual_audit")
     parser.add_argument(
         "--strict", action="store_true",
@@ -473,6 +480,7 @@ def main():
             max_gif_frames=args.max_gif_frames,
             gif_max_width=args.gif_max_width,
             gif_duration_ms=args.gif_duration_ms,
+            affordance_model=args.affordance_model,
         )
         records.append(record)
         print(

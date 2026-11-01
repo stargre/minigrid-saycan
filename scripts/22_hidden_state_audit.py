@@ -32,7 +32,8 @@ DECISION_FILES = [
     "skills/observation_explorer.py", "skills/navigation.py",
     "skills/feasibility.py", "skills/dependency.py", "skills/target.py",
     "perception/belief_state.py", "planners/unified_saycan_planner.py",
-    "llm/skill_relevance.py",
+    "llm/skill_relevance.py", "affordance/features.py",
+    "affordance/model.py", "affordance/evaluator.py", "affordance/data.py",
 ]
 HIDDEN_ATTRIBUTES = {
     "grid", "agent_pos", "agent_dir", "carrying",

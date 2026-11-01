@@ -9,6 +9,7 @@ import re
 
 from skills.dependency import TaskDependencyResolver, ordered_door_colors
 from skills.feasibility import SkillFeasibilityEvaluator
+from affordance.evaluator import LearnedAffordanceEvaluator
 from skills.unified_library import SkillLibraryV1
 from skills.target import PICKABLE_OBJECTS, parse_target_specs
 from llm.skill_relevance import KeywordRelevanceScorer
@@ -64,12 +65,24 @@ class UnifiedSayCanPlanner:
     }
 
     def __init__(self, runtime, relevance_scorer=None, skill_library=None,
-                 max_actions=450, max_skill_actions=300):
+                 max_actions=450, max_skill_actions=300,
+                 affordance_model=None, transition_recorder=None):
         self.runtime = runtime
         self.library = skill_library or SkillLibraryV1(runtime)
         self.dependencies = TaskDependencyResolver()
-        self.feasibility = SkillFeasibilityEvaluator(runtime, self.dependencies)
+        self.feasibility = (
+            LearnedAffordanceEvaluator(
+                runtime, affordance_model, self.dependencies
+            )
+            if affordance_model is not None
+            else SkillFeasibilityEvaluator(runtime, self.dependencies)
+        )
         self.relevance = relevance_scorer or KeywordRelevanceScorer()
+        self.transition_recorder = transition_recorder
+        self.affordance_mode = (
+            "learned_hard_mask" if affordance_model is not None
+            else "deterministic"
+        )
         self.max_actions = int(max_actions)
         self.max_skill_actions = int(max_skill_actions)
         self.history = []
@@ -117,6 +130,13 @@ class UnifiedSayCanPlanner:
                 "name": call.get("name"),
                 "args": call.get("args", {}),
                 "feasibility": float(assessment.get("feasibility", 0.0)),
+                "hard_feasibility": float(assessment.get(
+                    "hard_feasibility", assessment.get("feasibility", 0.0)
+                )),
+                "learned_affordance": assessment.get("learned_affordance"),
+                "affordance_source": assessment.get(
+                    "affordance_source", "deterministic"
+                ),
                 "reason": assessment.get("reason", ""),
                 "prerequisites": assessment.get("prerequisites", []),
             }
@@ -163,6 +183,18 @@ class UnifiedSayCanPlanner:
         result["controller_steps"] = len(trace)
         result["low_level_actions"] = self.runtime.action_count - start_actions
         result["execution_trace"] = trace
+        return result
+
+    def _execute_with_recording(self, task, call, assessment):
+        recorder = getattr(self, "transition_recorder", None)
+        sample = None
+        if recorder is not None:
+            sample = recorder.start(
+                task, self.runtime.belief, call, assessment
+            )
+        result = self._execute_skill_to_terminal(call)
+        if recorder is not None:
+            recorder.finish(sample, result)
         return result
 
     @staticmethod
@@ -252,6 +284,14 @@ class UnifiedSayCanPlanner:
                 "call": call, "relevance": rel, "feasibility": feasible,
                 "score": rel * feasible, "rationale": item.get("rationale", ""),
                 "feasibility_reason": assessment["reason"],
+                "hard_feasibility": float(assessment.get(
+                    "hard_feasibility", assessment["feasibility"]
+                )),
+                "learned_affordance": assessment.get("learned_affordance"),
+                "affordance_source": assessment.get(
+                    "affordance_source", "deterministic"
+                ),
+                "assessment": assessment,
             })
 
         scored.sort(key=lambda item: (-item["score"], item["call"]["id"]))
@@ -323,7 +363,9 @@ class UnifiedSayCanPlanner:
                     ).strip()
 
         call = selected["call"]
-        result = self._execute_skill_to_terminal(call)
+        result = self._execute_with_recording(
+            task, call, selected["assessment"]
+        )
         candidate_rankings = [
             {
                 "id": item["call"]["id"],
@@ -331,6 +373,9 @@ class UnifiedSayCanPlanner:
                 "args": item["call"].get("args", {}),
                 "relevance": item["relevance"],
                 "feasibility": item["feasibility"],
+                "hard_feasibility": item["hard_feasibility"],
+                "learned_affordance": item["learned_affordance"],
+                "affordance_source": item["affordance_source"],
                 "score": item["score"],
                 "rationale": item["rationale"],
                 "feasibility_reason": item["feasibility_reason"],
@@ -351,6 +396,10 @@ class UnifiedSayCanPlanner:
             "candidate_rankings": candidate_rankings,
             "candidate_diagnostics": candidate_diagnostics,
             "relevance": selected["relevance"], "feasibility": selected["feasibility"],
+            "hard_feasibility": selected["hard_feasibility"],
+            "learned_affordance": selected["learned_affordance"],
+            "affordance_source": selected["affordance_source"],
+            "affordance_mode": getattr(self, "affordance_mode", "deterministic"),
             "score": selected["score"], "zero_score_fallback": zero_score_fallback,
             "terminal_priority": terminal_priority,
             "relevance_rationale": selected["rationale"],
@@ -424,7 +473,7 @@ class UnifiedSayCanPlanner:
         # the feasible candidate with the highest feasibility and stable ID.
         explore = [(c, a) for c, a in feasible if c.get("name") == "Explore"]
         call, assessment = (explore or feasible)[0]
-        result = self._execute_skill_to_terminal(call)
+        result = self._execute_with_recording(task, call, assessment)
         record = {
             "round": len(self.history) + 1, "call": call,
             "selected_candidate_id": call["id"],
@@ -437,6 +486,15 @@ class UnifiedSayCanPlanner:
                     "args": candidate.get("args", {}),
                     "relevance": None,
                     "feasibility": float(candidate_assessment["feasibility"]),
+                    "hard_feasibility": float(candidate_assessment.get(
+                        "hard_feasibility", candidate_assessment["feasibility"]
+                    )),
+                    "learned_affordance": candidate_assessment.get(
+                        "learned_affordance"
+                    ),
+                    "affordance_source": candidate_assessment.get(
+                        "affordance_source", "deterministic"
+                    ),
                     "score": None,
                     "rationale": "Not scored by Qwen; selected by deterministic recovery.",
                     "feasibility_reason": candidate_assessment["reason"],
@@ -444,6 +502,14 @@ class UnifiedSayCanPlanner:
                 for candidate, candidate_assessment in feasible
             ],
             "relevance": 0.0, "feasibility": float(assessment["feasibility"]),
+            "hard_feasibility": float(assessment.get(
+                "hard_feasibility", assessment["feasibility"]
+            )),
+            "learned_affordance": assessment.get("learned_affordance"),
+            "affordance_source": assessment.get(
+                "affordance_source", "deterministic"
+            ),
+            "affordance_mode": getattr(self, "affordance_mode", "deterministic"),
             "score": 0.0, "zero_score_fallback": True,
             "relevance_rationale": "Deterministic recovery: no feasible candidate received a positive relevance score.",
             "feasibility_reason": assessment["reason"], "result": result,

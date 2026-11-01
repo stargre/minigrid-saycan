@@ -5,16 +5,19 @@ scores the same semantic skill candidates with task relevance (**Say**) and
 observation-grounded affordance (**Can**), selects the maximum product, executes
 a closed-loop skill through one runtime gateway, updates belief, and replans.
 
-> Current acceptance scope: Empty, GoToDoor, GoToObject, Fetch, PutNear, Unlock
-> and DoorKey. The deterministic affordance estimator is a model-based MiniGrid
-> substitute for SayCan's learned value functions. Keyword scoring is an
-> offline baseline and must not be reported as an LLM experiment.
+> Strict acceptance covers Empty, GoToDoor, GoToObject, Fetch, PutNear, Unlock
+> and DoorKey. Can may be either the deterministic baseline or the bundled
+> calibrated skill-success model; the learned mode preserves deterministic
+> hard safety constraints. Keyword scoring is an offline baseline and must not
+> be reported as an LLM experiment.
 
-**Verified baseline:** 87/87 unit tests and 140/140 official MiniGrid episodes
-(20 seeds x 7 families) on Python 3.12.7 and MiniGrid 3.2.0. Qwen smoke
-acceptance also passed 7/7 on Python 3.12.15 with a valid DashScope setup. See
-[the acceptance protocol](docs/MINIGRID_ACCEPTANCE.md) for criteria, limitations
-and the separate Qwen status.
+**Verified baseline:** 97/97 unit tests and 140/140 official MiniGrid episodes
+(20 seeds x 7 families) with learned Can on Python 3.12.7 and MiniGrid 3.2.0.
+The held-out affordance set reaches 98.63% accuracy, 0.00994 Brier score and
+0.00839 expected calibration error. Qwen smoke acceptance previously passed
+7/7 on Python 3.12.15 with a valid DashScope setup; Qwen plus the new model must
+be rerun wherever that API credential is available. See
+[the acceptance protocol](docs/MINIGRID_ACCEPTANCE.md) for details.
 
 ## Architecture
 
@@ -42,6 +45,9 @@ Task text → UnifiedSayCanPlanner → dependency resolution + feasibility + rel
 - **skills/unified_library.py** — compatibility facade; existing imports remain valid.
 - **skills/dependency.py** — candidate calls and prerequisites; never executes actions.
 - **skills/feasibility.py** — deterministic feasibility evaluation from belief state only.
+- **affordance/** — observation-grounded feature encoding, calibrated learned
+  skill-success model, dataset writer and `hard mask × learned probability`
+  evaluator.
 - **skills/library.py** — legacy adapter retained for older callers; new code should use SkillLibraryV1.
 
 ### Planning and model adapters
@@ -67,6 +73,12 @@ Task text → UnifiedSayCanPlanner → dependency resolution + feasibility + rel
 - **scripts/29_official_gotodoor_qwen_e2e.py** — Qwen-API-only GoToDoor end-to-end tests with per-action GIF recording and post-run oracle checks.
 - **scripts/30_minigrid_saycan_acceptance.py** — unified strict acceptance over seven official task families, with smoke/standard/extended profiles.
 - **scripts/31_all_minigrid_envs_gif_audit.py** — enumerates the complete installed MiniGrid catalog and writes GIFs, final frames, JSON traces and an HTML gallery.
+- **scripts/32_collect_affordance_data.py** — collects belief/SkillCall/outcome
+  JSONL records from real skill executions.
+- **scripts/33_train_affordance.py** — trains and temperature-calibrates the
+  NumPy affordance MLP using an environment/seed-group split.
+- **scripts/34_evaluate_affordance.py** — reports held-out accuracy, Brier,
+  calibration error, ROC-AUC and per-skill metrics.
 - **tests/test_fetch_task_contract.py** — Fetch mission parsing and distractor-target filtering regressions.
 - **scripts/08_saycan_planner_test.py** — one end-to-end custom task; accepts SEED.
 - **scripts/09_batch_evaluation.py** — five task-language variants with CSV/JSON metrics.
@@ -97,6 +109,11 @@ For the exact versions used by the recorded acceptance result:
     python scripts/30_minigrid_saycan_acceptance.py --profile standard
     python scripts/30_minigrid_saycan_acceptance.py --profile extended
     python scripts/31_all_minigrid_envs_gif_audit.py
+    python scripts/32_collect_affordance_data.py
+    python scripts/33_train_affordance.py
+    python scripts/34_evaluate_affordance.py
+    python scripts/30_minigrid_saycan_acceptance.py --profile extended \
+      --affordance-model models/minigrid_affordance_v1.json
 
     # Qwen API is required; this runner never switches to keyword scoring.
     export DASHSCOPE_API_KEY="YOUR_DASHSCOPE_API_KEY"
@@ -147,7 +164,18 @@ The official GoToObject demo is also Qwen-API-only and covers MiniGrid-GoToObjec
 
 A call has the shape {"name":"PickUp","args":{"target":{"object":"ball","color":"red"}}}. Every result includes success, status, reason, skill and actions_executed. One registry invocation advances a skill by at most one primitive action. The planner may repeatedly invoke the controller under explicit budgets.
 
-LLMs supply relevance scores only. Feasibility remains deterministic, and all physical actions pass through ObservationRuntime.execute_action. Ground-truth state is allowed in test setup and post-run evaluation, never as input to skill decisions.
+LLMs supply relevance scores only. In baseline mode Can is deterministic; in
+learned mode it is a deterministic hard mask times a calibrated, learned
+skill-success probability. All physical actions pass through
+ObservationRuntime.execute_action. Ground-truth state is allowed in test setup
+and post-run evaluation, never as input to skill decisions.
+
+The learned-affordance mode implements the SayCan core as language relevance
+times learned skill-success probability, with deterministic feasibility kept
+as a hard safety mask. The bundled calibrated model and fully reproducible
+collection/training/evaluation workflow are documented in
+[docs/LEARNED_AFFORDANCE.md](docs/LEARNED_AFFORDANCE.md). Candidate traces keep
+`hard_feasibility`, `learned_affordance` and their combined Can score separate.
 
 ## Freeze policy
 

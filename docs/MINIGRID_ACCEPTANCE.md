@@ -13,11 +13,11 @@ This repository is a MiniGrid adaptation of the SayCan planning pattern:
    history, and replans.
 
 The original SayCan work uses learned value functions for affordance. This
-MiniGrid implementation currently uses a deterministic, model-based affordance
-estimator over the partial-observation belief map. It reproduces the planning
-and grounding interface, but it is not evidence that an RL value function has
-been reproduced. The keyword scorer is an offline regression baseline; only a
-successful Qwen run is an LLM-backed SayCan experiment.
+MiniGrid implementation provides both a deterministic baseline and a calibrated
+neural skill-success estimator trained from real skill executions over the
+partial-observation belief map. Learned Can is multiplied by a deterministic
+hard-safety mask. The keyword scorer remains an offline regression baseline;
+only a successful Qwen run is an LLM-backed SayCan experiment.
 
 References:
 
@@ -84,8 +84,11 @@ does not silently count keyword fallback as a Qwen success.
 
 On Python 3.12.7, MiniGrid 3.2.0, Gymnasium 1.4.0 and NumPy 2.5.4:
 
-- unit tests: **87/87 passed**;
+- unit tests: **97/97 passed**;
 - offline extended acceptance: **140/140 passed** (20 seeds x 7 families);
+- learned-Can extended acceptance: **140/140 passed** (20 seeds x 7 families);
+- learned affordance held-out accuracy: **98.63%**, Brier score **0.00994**,
+  expected calibration error **0.00839**, ROC-AUC **0.99747**;
 - Qwen smoke acceptance: **7/7 passed** on Python 3.12.15 with MiniGrid 3.2.0,
   Gymnasium 1.4.0 and NumPy 2.5.4 using a valid DashScope configuration.
 
@@ -104,6 +107,7 @@ Keep these interfaces stable when replacing MiniGrid:
 - runtime action gateway and action accounting;
 - post-run oracle isolation and JSON report schema.
 
-Replace the MiniGrid belief decoder, low-level skill policies and oracle with
-MuJoCo-specific implementations. A learned success/value model can then replace
-the deterministic affordance estimator without changing the high-level planner.
+Replace the MiniGrid belief decoder, low-level skill policies, feature encoder
+and oracle with MuJoCo-specific implementations. The learned evaluator and
+high-level planner interfaces remain unchanged; retrain the value model from
+MuJoCo skill outcomes.
