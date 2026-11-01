@@ -187,6 +187,43 @@ class PlannerRecoveryTests(unittest.TestCase):
         )
         self.assertFalse(planner._task_success(mandatory_task))
 
+    def test_doorkey_mission_is_not_misclassified_as_gotoobject(self):
+        planner = self.planner()
+        planner._task_success = UnifiedSayCanPlanner._task_success.__get__(
+            planner, UnifiedSayCanPlanner
+        )
+        planner.runtime.terminated = True
+        planner.runtime.truncated = False
+        planner.runtime.last_reward = 1.0
+        planner.runtime.belief.completed_subgoals = [
+            "pick", "pickup", "unlock_door", "open_door", "reach"
+        ]
+        planner.history = [{"call": {"name": "Reach"}}]
+
+        self.assertTrue(planner._task_success(
+            "use the key to open the door and then get to the goal"
+        ))
+
+    def test_completed_navigation_call_is_not_persistently_suppressed(self):
+        planner = self.planner()
+        call = {
+            "id": "navigateto:door", "name": "NavigateTo", "args": {},
+            "description": "Navigate to door",
+        }
+        planner._candidate_pool = Mock(return_value=[
+            (call, {"feasibility": 1.0, "reason": "reachable"})
+        ])
+        planner.relevance.score.return_value = {
+            call["id"]: {"relevance": 1.0, "rationale": "needed again"}
+        }
+        planner._execute_skill_to_terminal = Mock(return_value={
+            "success": True, "status": "skill_complete", "low_level_actions": 1,
+        })
+
+        planner.step("open the door")
+
+        self.assertNotIn(call["id"], planner.completed_ids)
+
     def test_candidate_ranking_trace_contains_relevance_and_feasibility(self):
         planner = self.planner()
         explore = {
@@ -224,7 +261,7 @@ class PlannerRecoveryTests(unittest.TestCase):
             "max_relevance_times_feasibility",
         )
 
-    def test_infeasible_candidates_are_not_sent_to_relevance_scorer(self):
+    def test_say_and_can_score_the_same_candidate_set(self):
         planner = self.planner()
         feasible = {"id": "OpenDoor:yellow:door", "name": "OpenDoor", "args": {}, "description": "Open door"}
         infeasible = {"id": "PlaceNear:ball:goal:above", "name": "PlaceNear", "args": {}, "description": "Place ball"}
@@ -233,7 +270,10 @@ class PlannerRecoveryTests(unittest.TestCase):
             (infeasible, {"feasibility": 0.0, "reason": "not holding"}),
         ])
         planner.relevance.score.return_value = {
-            feasible["id"]: {"relevance": 0.9, "rationale": "next step"}
+            feasible["id"]: {"relevance": 0.9, "rationale": "next step"},
+            infeasible["id"]: {
+                "relevance": 1.0, "rationale": "semantic but impossible"
+            },
         }
         planner._execute_skill_to_terminal = Mock(return_value={
             "success": True, "status": "task_progress", "low_level_actions": 1
@@ -241,7 +281,10 @@ class PlannerRecoveryTests(unittest.TestCase):
         planner.runtime.action_count = 1
         result = planner.step("open door and place ball")
         sent_calls = planner.relevance.score.call_args.args[1]
-        self.assertEqual([c["id"] for c in sent_calls], [feasible["id"]])
+        self.assertEqual(
+            [c["id"] for c in sent_calls],
+            [feasible["id"], infeasible["id"]],
+        )
         self.assertTrue(result["success"])
 
         diagnostics = result["record"]["candidate_diagnostics"]
@@ -250,6 +293,12 @@ class PlannerRecoveryTests(unittest.TestCase):
         )
         self.assertEqual(place_diagnostic["feasibility"], 0.0)
         self.assertEqual(place_diagnostic["reason"], "not holding")
+        place_ranking = next(
+            item for item in result["record"]["candidate_rankings"]
+            if item["id"] == infeasible["id"]
+        )
+        self.assertEqual(place_ranking["relevance"], 1.0)
+        self.assertEqual(place_ranking["score"], 0.0)
 
 
 if __name__ == "__main__":

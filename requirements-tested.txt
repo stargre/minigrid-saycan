@@ -1,0 +1,7 @@
+# Exact top-level versions used for the MiniGrid acceptance record.
+# Python: 3.12.7
+minigrid==3.2.0
+gymnasium==1.4.0
+numpy==2.5.4
+Pillow==13.0.0
+openai==3.42.0

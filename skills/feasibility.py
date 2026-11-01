@@ -79,8 +79,18 @@ class SkillFeasibilityEvaluator:
         elif name == "NavigateTo":
             if positions:
                 pos = min((p for p, _ in positions), key=lambda p: abs(p[0]-self.belief.agent_pos[0])+abs(p[1]-self.belief.agent_pos[1]))
-                score = float(self._reachable_adjacent(pos))
-                reason = "A known route to an adjacent cell exists." if score else "No known route to an adjacent cell."
+                dx = pos[0] - self.belief.agent_pos[0]
+                dy = pos[1] - self.belief.agent_pos[1]
+                already_positioned = bool(
+                    abs(dx) + abs(dy) == 1
+                    and (dx, dy) == DIRECTIONS[int(self.belief.agent_dir)]
+                )
+                if already_positioned:
+                    score = 0.0
+                    reason = "The agent is already adjacent to and facing the target."
+                else:
+                    score = float(self._reachable_adjacent(pos))
+                    reason = "A known route to an adjacent cell exists." if score else "No known route to an adjacent cell."
             else:
                 reason = "Find the target first."
         elif name == "PickUp":

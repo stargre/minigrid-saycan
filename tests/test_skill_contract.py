@@ -71,6 +71,27 @@ class BeliefStateTests(unittest.TestCase):
             belief.known_map[belief.agent_pos]["state"], "open"
         )
 
+    def test_carried_object_at_ego_cell_is_not_written_into_world_map(self):
+        """MiniGrid renders the carried object at the agent-view origin."""
+        image = np.zeros((7, 7, 3), dtype=np.uint8)
+        image[:, :, 0] = OBJECT_TO_IDX["unseen"]
+        image[3, 6] = [OBJECT_TO_IDX["key"], 0, 0]
+
+        belief = BeliefState()
+        belief.agent_pos = (0, 0)
+        belief.known_map[belief.agent_pos] = {
+            "object": "empty",
+            "color": "unknown",
+            "state": "unknown",
+            "last_seen": 1,
+        }
+
+        belief._integrate_observation({"image": image, "direction": 0})
+
+        self.assertEqual(
+            belief.known_map[belief.agent_pos]["object"], "empty"
+        )
+
 
 class DependencyTests(unittest.TestCase):
     def test_unlock_candidate_has_parameterized_target(self):
@@ -85,6 +106,19 @@ class DependencyTests(unittest.TestCase):
             for c in calls
         ))
         self.assertFalse(any(c["name"] in {"OpenDoor", "UnlockDoor"} for c in calls))
+
+    def test_doorkey_compound_task_keeps_key_door_and_goal_stages(self):
+        calls = TaskDependencyResolver().candidate_calls(
+            "Find the yellow key, unlock the yellow door, open the yellow "
+            "door, and reach the green goal."
+        )
+        ids = {call["id"] for call in calls}
+
+        self.assertIn("pickup:yellow:key", ids)
+        self.assertIn("unlockdoor:yellow:door", ids)
+        self.assertIn("opendoor:yellow:door", ids)
+        self.assertIn("reach:green:goal", ids)
+        self.assertFalse(any(call["name"] == "Done" for call in calls))
 
     def test_gotoobject_uses_done_for_only_the_explicit_object(self):
         class Belief:
@@ -211,6 +245,32 @@ class DependencyTests(unittest.TestCase):
 
 
 class FeasibilityTests(unittest.TestCase):
+    def test_navigation_affordance_is_zero_when_already_facing_target(self):
+        class Belief:
+            inventory_status = "empty"
+            held_object = None
+            agent_pos = (0, 0)
+            agent_dir = 0
+            known_map = {
+                (0, 0): {"object": "empty", "color": "unknown", "state": "unknown"},
+                (1, 0): {"object": "door", "color": "yellow", "state": "closed"},
+            }
+
+            def cell_at(self, position):
+                return self.known_map.get(tuple(position))
+
+        class Runtime:
+            belief = Belief()
+            terminated = False
+            truncated = False
+
+        assessment = SkillFeasibilityEvaluator(Runtime()).evaluate(
+            make_call("NavigateTo", target={"object": "door", "color": "yellow"})
+        )
+
+        self.assertEqual(assessment["feasibility"], 0.0)
+        self.assertIn("already adjacent", assessment["reason"])
+
     def test_explore_prerequisite_uses_canonical_skill_id(self):
         class Belief:
             inventory_status = "empty"
