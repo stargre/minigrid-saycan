@@ -86,14 +86,13 @@ On Python 3.12.7, MiniGrid 3.2.0, Gymnasium 1.4.0 and NumPy 2.5.4:
 
 - unit tests: **73/73 passed**;
 - offline extended acceptance: **140/140 passed** (20 seeds x 7 families);
-- Qwen smoke physical outcomes: **7/7 completed**, but strict Qwen acceptance
-  remained **0/7** because the configured credential returned
-  `AuthenticationError` and every round correctly fell back to the offline
-  scorer.
+- Qwen smoke acceptance: **7/7 passed** on Python 3.12.15 with MiniGrid 3.2.0,
+  Gymnasium 1.4.0 and NumPy 2.5.4 using a valid DashScope configuration.
 
-Therefore the MiniGrid control and grounding baseline is accepted. LLM-backed
-acceptance must be rerun after a valid region-matched DashScope key is supplied;
-until then, results must not be reported as an LLM SayCan experiment.
+Therefore the seven-family MiniGrid control/grounding baseline and the Qwen
+smoke gate are accepted. This does not imply support for every registered
+MiniGrid environment; use the separate all-environment visual audit to expose
+the remaining capability gaps.
 
 ## MuJoCo migration boundary
 
@@ -108,3 +107,4 @@ Keep these interfaces stable when replacing MiniGrid:
 Replace the MiniGrid belief decoder, low-level skill policies and oracle with
 MuJoCo-specific implementations. A learned success/value model can then replace
 the deterministic affordance estimator without changing the high-level planner.
+
