@@ -132,7 +132,8 @@ class SkillFeasibilityEvaluator:
                     and any(
                         abs(tuple(obj_pos)[0] - tuple(door_pos)[0])
                         + abs(tuple(obj_pos)[1] - tuple(door_pos)[1]) == 1
-                        and obj.get("object") in {"ball", "box"}
+                        and obj.get("object") in {"ball", "box", "key"}
+                        and not spec.matches(obj)
                         for obj_pos, obj in self.belief.known_map.items()
                     )
                     for door_pos, door in self.belief.known_map.items()
