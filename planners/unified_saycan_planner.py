@@ -7,7 +7,7 @@ failures trigger replanning; hard episode/budget failures terminate the run.
 import os
 import re
 
-from skills.dependency import TaskDependencyResolver
+from skills.dependency import TaskDependencyResolver, ordered_door_colors
 from skills.feasibility import SkillFeasibilityEvaluator
 from skills.unified_library import SkillLibraryV1
 from skills.target import PICKABLE_OBJECTS, parse_target_specs
@@ -464,6 +464,16 @@ class UnifiedSayCanPlanner:
     def _task_success(self, task):
         text = str(task).lower()
         if "matching object" in text and "end of the hallway" in text:
+            return bool(
+                self.runtime.terminated
+                and not self.runtime.truncated
+                and self.runtime.last_reward > 0
+            )
+        # RedBlueDoors terminates both on the correct sequence and on the
+        # fatal error of opening blue first. Generic "open door" evidence is
+        # therefore insufficient: require the environment's positive terminal
+        # reward for explicitly ordered door missions.
+        if ordered_door_colors(task):
             return bool(
                 self.runtime.terminated
                 and not self.runtime.truncated
