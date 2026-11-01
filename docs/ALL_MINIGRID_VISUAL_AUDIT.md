@@ -64,8 +64,8 @@ Tested with MiniGrid 3.2.0 and the offline scorer:
 |---|---:|
 | Registered environments | 82 |
 | Attempted | 75 |
-| Passed | 63 |
-| Failed | 12 |
+| Passed | 64 |
+| Failed | 11 |
 | Unsupported (empty mission) | 1 |
 | Unavailable (missing WFC extras) | 6 |
 
@@ -84,13 +84,18 @@ exposes only the first unfinished ordered door and requires positive terminal
 environment reward, so opening red alone cannot be reported as completion and
 opening blue first cannot be mistaken for success.
 
-The 12 remaining failures are all ObstructedMaze variants beyond 1Dl. Every
-`h` variant hides a key inside a box, which requires toggling the box to reveal
-its contents; the current public skill contract has no `OpenBox`/`Unbox`
-skill. The larger variants additionally require recursive exploration and
-dependency planning across multiple locks, keys, blockers and rooms. The
-single-lock, exposed-key `ObstructedMaze-1Dl-v0` already passes, so these are
-explicit skill-scope gaps rather than Qwen/keyword ranking disagreements.
+The 11 remaining failures are ObstructedMaze variants with hidden keys and/or
+the larger quarter/full layouts. Both exposed-key variants now pass:
+`ObstructedMaze-1Dl-v0` and `ObstructedMaze-2Dl-v0`. The latter is regression
+tested over 50 seeds and handles multiple locks, key-colour dependencies,
+spent-key release, and temporarily relocating a different key that blocks a
+lock's only approach cell.
+
+Every `h` variant hides a key inside a box, which requires toggling the box to
+reveal its contents; the current public skill contract has no `OpenBox`/`Unbox`
+skill. Quarter/full variants combine that missing operation with more locks,
+blockers and rooms. These are explicit skill-scope gaps rather than
+Qwen/keyword ranking disagreements.
 WFC environments require `minigrid[wfc]` before they can be instantiated.
 `MiniGrid-Playground-v0` has no mission and therefore cannot be evaluated as a
 language-conditioned SayCan task without a supplied instruction.
