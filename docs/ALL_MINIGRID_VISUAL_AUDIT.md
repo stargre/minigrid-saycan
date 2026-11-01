@@ -64,27 +64,46 @@ Tested with MiniGrid 3.2.0 and the offline scorer:
 |---|---:|
 | Registered environments | 82 |
 | Attempted | 75 |
-| Passed | 54 |
-| Failed | 21 |
+| Passed | 60 |
+| Failed | 15 |
 | Unsupported (empty mission) | 1 |
 | Unavailable (missing WFC extras) | 6 |
 
 This single-seed catalog run is an effect audit, not a statistical acceptance
 result. The strict seven-family suite remains the regression gate.
 
-The optimized seed-0 run passes every registered KeyCorridor and MultiRoom
+The optimized seed-0 run passes every registered KeyCorridor, MultiRoom,
+Memory and DynamicObstacles
 variant. It also passes BlockedUnlockPickup, UnlockPickup and the basic
 ObstructedMaze-1Dl task by treating ordinary doors, door blockers and spent
 keys as observation-grounded physical prerequisites.
 
-The remaining capability gaps include dynamic-obstacle reaction, LockedRoom's
-cross-room key search, multi-obstacle ObstructedMaze variants and ordered
-RedBlueDoors interaction. Dynamic obstacles move independently between agent
-steps and therefore need a reactive time-dependent policy; the current belief
-map and path planner intentionally model static topology. WFC environments
-require `minigrid[wfc]` before they can be instantiated.
+The remaining capability gaps include LockedRoom's cross-room key search,
+multi-obstacle ObstructedMaze variants and ordered RedBlueDoors interaction.
+WFC environments require `minigrid[wfc]` before they can be instantiated.
 `MiniGrid-Playground-v0` has no mission and therefore cannot be evaluated as a
 language-conditioned SayCan task without a supplied instruction.
+
+## Qwen accuracy and grounded references
+
+Before the Memory fix, the seed-0 keyword audit passed 54/75 while Qwen passed
+48/75. The six-case difference was exactly the six Memory variants. Their
+mission says "matching object" but both endpoints are green; the previous Qwen
+payload did not contain the start-room cue, so the LLM had to guess between a
+green key and green ball. Keyword happened to choose the correct seed-0 branch
+through deterministic ID ordering, which was not real grounding.
+
+The resolver now withholds both endpoint candidates, actively observes the
+start cue, and exposes only the endpoint whose object type matches that cue.
+Qwen receives explicit `memory_probe` and `grounded_reference` progress hints.
+This preserves the Say/Can boundary: language relevance does not guess a
+perceptual referent that the observation-grounding layer can resolve exactly.
+
+DynamicObstacles use a separate `reactive_obstacles` mode. Balls are treated as
+transient occupancy rather than permanent walls; the controller checks the
+next cell before each forward action and replans after every observation.
+Static visual landmarks determine whether a forward action actually moved the
+agent, preventing belief-pose drift when a ball moves into the intended cell.
 
 ## Why and where traversal was fixed
 
@@ -100,3 +119,11 @@ language-conditioned SayCan task without a supplied instruction.
 - `planners/unified_saycan_planner.py` commits a ready topology-changing
   interaction before unrelated navigation moves the agent away. Every
   candidate still appears in the complete Say/Can ranking and trace.
+- `skills/observation_explorer.py` performs the two-stage Memory probe: observe
+  the cue, then search the original hallway direction for endpoint choices.
+- `skills/navigation.py` implements transient-obstacle path planning and a
+  per-action collision guard.
+- `perception/belief_state.py` confirms forward motion from static visual
+  landmarks so moving objects cannot corrupt the estimated pose.
+- `llm/skill_relevance.py` tells Qwen when a reference has been uniquely
+  grounded or a reactive controller is required.

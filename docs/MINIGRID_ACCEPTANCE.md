@@ -84,7 +84,7 @@ does not silently count keyword fallback as a Qwen success.
 
 On Python 3.12.7, MiniGrid 3.2.0, Gymnasium 1.4.0 and NumPy 2.5.4:
 
-- unit tests: **82/82 passed**;
+- unit tests: **87/87 passed**;
 - offline extended acceptance: **140/140 passed** (20 seeds x 7 families);
 - Qwen smoke acceptance: **7/7 passed** on Python 3.12.15 with MiniGrid 3.2.0,
   Gymnasium 1.4.0 and NumPy 2.5.4 using a valid DashScope configuration.

@@ -20,12 +20,18 @@ class ObservationNavigator:
         self._approach_pos = None
 
     @staticmethod
-    def _safe_walkable(cell):
+    def _safe_walkable(cell, transient_obstacles=False):
         """
         不把绿色目标格当作普通导航路径。
 
         避免智能体站上目标格后，观测记忆丢失目标信息。
         """
+        if (
+            transient_obstacles
+            and cell is not None
+            and cell.get("object") == "ball"
+        ):
+            return True
         return (
             cell is not None
             and cell.get("object") != "goal"
@@ -51,7 +57,9 @@ class ObservationNavigator:
         self._active_target = None
         self._approach_pos = None
 
-    def _find_path(self, start, goal, allow_goal=False):
+    def _find_path(
+        self, start, goal, allow_goal=False, transient_obstacles=False
+    ):
         """只在已知且可通行的格子中执行 BFS。
 
         By default, goal tiles remain excluded from transit routes so ordinary
@@ -72,7 +80,9 @@ class ObservationNavigator:
             and goal_cell.get("object") == "goal"
             and is_walkable(goal_cell)
         )
-        if not self._safe_walkable(goal_cell) and not goal_is_allowed:
+        if not self._safe_walkable(
+            goal_cell, transient_obstacles
+        ) and not goal_is_allowed:
             return None
 
         queue = deque([start])
@@ -89,7 +99,9 @@ class ObservationNavigator:
                 is_designated_goal = bool(
                     allow_goal and nxt == goal and goal_is_allowed
                 )
-                if not self._safe_walkable(cell) and not is_designated_goal:
+                if not self._safe_walkable(
+                    cell, transient_obstacles
+                ) and not is_designated_goal:
                     continue
 
                 parent[nxt] = current
@@ -146,7 +158,21 @@ class ObservationNavigator:
             ),
         }
 
-    def step_towards_cell(self, goal_pos, allow_goal=False):
+    def _transient_collision_risk(self, next_pos):
+        """A currently visible dynamic ball may move one cell before us."""
+        observation_count = int(self.belief.observation_count)
+        for pos, cell in self.belief.known_map.items():
+            if cell.get("object") != "ball":
+                continue
+            if int(cell.get("last_seen", -1)) != observation_count:
+                continue
+            if tuple(pos) == tuple(next_pos):
+                return True
+        return False
+
+    def step_towards_cell(
+        self, goal_pos, allow_goal=False, transient_obstacles=False
+    ):
         """
         向已知、可通行的目标格移动一步。
 
@@ -167,7 +193,10 @@ class ObservationNavigator:
                 "actions_executed": 0,
             }
 
-        path = self._find_path(start, goal, allow_goal=allow_goal)
+        path = self._find_path(
+            start, goal, allow_goal=allow_goal,
+            transient_obstacles=transient_obstacles,
+        )
 
         if path is None:
             return {
@@ -209,6 +238,12 @@ class ObservationNavigator:
             return self._execute(
                 action,
                 "Turning toward the next known waypoint.",
+            )
+
+        if transient_obstacles and self._transient_collision_risk(next_pos):
+            return self._execute(
+                Actions.left,
+                "Waiting for a nearby moving obstacle, then replanning from the next observation.",
             )
 
         return self._execute(

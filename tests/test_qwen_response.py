@@ -20,6 +20,21 @@ def fake_response(content):
 
 
 class QwenResponseParsingTests(unittest.TestCase):
+    def test_grounded_control_modes_are_explained_to_qwen(self):
+        probe = QwenSkillRelevanceScorer._target_progress(
+            {"name": "Explore", "args": {"memory_probe": True}}, "", {}
+        )
+        grounded = QwenSkillRelevanceScorer._target_progress(
+            {"name": "NavigateTo", "args": {"grounded_reference": True}},
+            "", {},
+        )
+        reactive = QwenSkillRelevanceScorer._target_progress(
+            {"name": "Reach", "args": {"reactive_obstacles": True}}, "", {}
+        )
+        self.assertIn("required", probe)
+        self.assertIn("uniquely resolved", grounded)
+        self.assertIn("collision avoidance", reactive)
+
     def test_compact_numeric_json(self):
         result = QwenSkillRelevanceScorer._parse_score_response(
             '{"PickUp:red:ball":0.91,"UnlockDoor:yellow:door":0.74}', CALLS

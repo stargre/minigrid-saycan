@@ -11,8 +11,11 @@ class ExploreSkill(UnifiedSkill):
         super().__init__(runtime)
         self.explorer = ObservationExplorer(runtime)
 
-    def step(self, **kwargs):
-        result = self.explorer.step()
+    def step(self, memory_probe=False, reactive_obstacles=False, **kwargs):
+        result = self.explorer.step(
+            memory_probe=bool(memory_probe),
+            reactive_obstacles=bool(reactive_obstacles),
+        )
         result["skill"] = self.name
         return result
 
@@ -20,7 +23,7 @@ class ExploreSkill(UnifiedSkill):
 class FindSkill(UnifiedSkill):
     name = "Find"
 
-    def step(self, target, **kwargs):
+    def step(self, target, reactive_obstacles=False, **kwargs):
         spec = TargetSpec.from_value(target)
         pos, cell = self._nearest(spec.to_dict())
         if pos is not None:
@@ -29,7 +32,9 @@ class FindSkill(UnifiedSkill):
                 "Target is supported by observation evidence in the belief map.",
                 target=spec.to_dict(), evidence={"position": list(pos), "cell": dict(cell)},
             )
-        result = self.explorer.step()
+        result = self.explorer.step(
+            reactive_obstacles=bool(reactive_obstacles)
+        )
         result["skill"] = self.name
         result["target"] = spec.to_dict()
         if result.get("status") == "exploration_exhausted":

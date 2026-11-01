@@ -77,6 +77,9 @@ class SkillFeasibilityEvaluator:
                         self.belief.agent_pos,
                         pos,
                         allow_goal=True,
+                        transient_obstacles=bool(
+                            args.get("reactive_obstacles")
+                        ),
                     )
                     score = float(path is not None)
                     reason = "A known path to the target cell exists." if score else "No known path to the target cell."
