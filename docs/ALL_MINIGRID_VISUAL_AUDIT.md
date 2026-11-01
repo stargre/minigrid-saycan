@@ -64,8 +64,8 @@ Tested with MiniGrid 3.2.0 and the offline scorer:
 |---|---:|
 | Registered environments | 82 |
 | Attempted | 75 |
-| Passed | 60 |
-| Failed | 15 |
+| Passed | 63 |
+| Failed | 12 |
 | Unsupported (empty mission) | 1 |
 | Unavailable (missing WFC extras) | 6 |
 
@@ -78,8 +78,19 @@ variant. It also passes BlockedUnlockPickup, UnlockPickup and the basic
 ObstructedMaze-1Dl task by treating ordinary doors, door blockers and spent
 keys as observation-grounded physical prerequisites.
 
-The remaining capability gaps include LockedRoom's cross-room key search,
-multi-obstacle ObstructedMaze variants and ordered RedBlueDoors interaction.
+LockedRoom and both RedBlueDoors sizes now pass. LockedRoom grounds a phrase
+such as "from the grey room" to that room's grey entrance door. RedBlueDoors
+exposes only the first unfinished ordered door and requires positive terminal
+environment reward, so opening red alone cannot be reported as completion and
+opening blue first cannot be mistaken for success.
+
+The 12 remaining failures are all ObstructedMaze variants beyond 1Dl. Every
+`h` variant hides a key inside a box, which requires toggling the box to reveal
+its contents; the current public skill contract has no `OpenBox`/`Unbox`
+skill. The larger variants additionally require recursive exploration and
+dependency planning across multiple locks, keys, blockers and rooms. The
+single-lock, exposed-key `ObstructedMaze-1Dl-v0` already passes, so these are
+explicit skill-scope gaps rather than Qwen/keyword ranking disagreements.
 WFC environments require `minigrid[wfc]` before they can be instantiated.
 `MiniGrid-Playground-v0` has no mission and therefore cannot be evaluated as a
 language-conditioned SayCan task without a supplied instruction.
@@ -109,7 +120,8 @@ agent, preventing belief-pose drift when a ball moves into the intended cell.
 
 - `skills/dependency.py` derives per-position `OpenDoor` and `MoveObstacle`
   calls from observed topology. Call IDs include positions, so opening one door
-  does not suppress another same-colored door.
+  does not suppress another same-colored door. It also maps a named LockedRoom
+  room to its same-colour entrance and enforces explicit ordered-door stages.
 - `skills/feasibility.py` turns physical ordering into Can constraints: a
   blocker must be cleared before its lock's key occupies the gripper, and
   already-open doors cannot attract stale navigation.
@@ -118,7 +130,9 @@ agent, preventing belief-pose drift when a ball moves into the intended cell.
   before target pickup.
 - `planners/unified_saycan_planner.py` commits a ready topology-changing
   interaction before unrelated navigation moves the agent away. Every
-  candidate still appears in the complete Say/Can ranking and trace.
+  candidate still appears in the complete Say/Can ranking and trace. Ordered
+  door missions require positive environment termination instead of generic
+  door-open history.
 - `skills/observation_explorer.py` performs the two-stage Memory probe: observe
   the cue, then search the original hallway direction for endpoint choices.
 - `skills/navigation.py` implements transient-obstacle path planning and a
