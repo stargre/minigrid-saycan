@@ -463,6 +463,12 @@ class UnifiedSayCanPlanner:
 
     def _task_success(self, task):
         text = str(task).lower()
+        if "matching object" in text and "end of the hallway" in text:
+            return bool(
+                self.runtime.terminated
+                and not self.runtime.truncated
+                and self.runtime.last_reward > 0
+            )
         done = set(self.runtime.belief.completed_subgoals)
         if any(word in text for word in ("place", "put", "drop", "set down")):
             # A generic Drop only confirms release. PlaceNear marks "place"

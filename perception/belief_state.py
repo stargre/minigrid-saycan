@@ -131,7 +131,13 @@ class BeliefState:
         front_delta = DIRECTIONS[before_dir]
         front_pos = (before_pos[0] + front_delta[0], before_pos[1] + front_delta[1])
 
-        if action_id == int(Actions.forward) and is_walkable(before_front):
+        if (
+            action_id == int(Actions.forward)
+            and is_walkable(before_front)
+            and self._forward_motion_confirmed(
+                next_obs, before_pos, front_pos, before_dir
+            )
+        ):
             dx, dy = DIRECTIONS[before_dir]
             self.agent_pos = (self.agent_pos[0] + dx, self.agent_pos[1] + dy)
 
@@ -183,6 +189,55 @@ class BeliefState:
         self.agent_dir = int(next_obs["direction"])
         self._integrate_observation(next_obs)
         self.last_obs = next_obs
+
+    def _pose_consistency(self, obs, candidate_pos, direction):
+        image = obs["image"]
+        width, height, _ = image.shape
+        center = width // 2
+        matched = 0
+        total = 0
+        for x in range(width):
+            for y in range(height):
+                cell = decode_cell(image[x, y])
+                if cell["object"] in {"unseen", "agent", "ball"}:
+                    continue
+                forward = height - 1 - y
+                lateral = x - center
+                dx, dy = self._world_offset(forward, lateral, direction)
+                pos = (candidate_pos[0] + dx, candidate_pos[1] + dy)
+                previous = self.known_map.get(pos)
+                if not previous or previous.get("object") == "ball":
+                    continue
+                weight = 3 if cell["object"] in {"wall", "goal", "door"} else 1
+                total += weight
+                same = previous.get("object") == cell.get("object")
+                if same and cell["object"] == "door":
+                    same = previous.get("state") == cell.get("state")
+                if same:
+                    matched += weight
+        return matched, total
+
+    def _forward_motion_confirmed(
+        self, next_obs, stayed_pos, moved_pos, direction
+    ):
+        """Infer blocked forward motion from static visual landmarks.
+
+        DynamicObstacles may move a ball into the intended cell after the
+        action is selected. The simulator then leaves the agent in place even
+        though the previous front observation was empty. Comparing both pose
+        hypotheses prevents belief-position drift without reading env state.
+        """
+        stayed_match, stayed_total = self._pose_consistency(
+            next_obs, stayed_pos, direction
+        )
+        moved_match, moved_total = self._pose_consistency(
+            next_obs, moved_pos, direction
+        )
+        if stayed_total == 0 or moved_total == 0:
+            return True
+        stayed_ratio = stayed_match / stayed_total
+        moved_ratio = moved_match / moved_total
+        return moved_ratio >= stayed_ratio
 
     def _mark_completed(self, name):
         if name not in self.completed_subgoals:

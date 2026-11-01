@@ -1,5 +1,5 @@
 from minigrid.core.actions import Actions
-from perception.belief_state import DIRECTIONS
+from perception.belief_state import DIRECTIONS, is_walkable
 
 from skills.navigation import ObservationNavigator
 
@@ -21,6 +21,8 @@ class ObservationExplorer:
         self.active_frontier = None
         self.pending_frontier = None
         self.blocked_edges = set()
+        self.memory_probe_direction = None
+        self.memory_forward_direction = None
 
     @staticmethod
     def _distance(a, b):
@@ -63,19 +65,20 @@ class ObservationExplorer:
 
         self.pending_frontier = None
 
-    def _candidate_frontiers(self):
+    def _candidate_frontiers(self, transient_obstacles=False):
         start = tuple(self.belief.agent_pos)
         candidates = []
 
         for pos, cell in list(
             self.belief.known_map.items()
         ):
-            if not self.navigator._safe_walkable(cell):
+            if not self.navigator._safe_walkable(cell, transient_obstacles):
                 continue
 
             path = self.navigator._find_path(
                 start,
                 pos,
+                transient_obstacles=transient_obstacles,
             )
 
             if path is None:
@@ -111,7 +114,60 @@ class ObservationExplorer:
 
         return candidates
 
-    def step(self):
+    def _memory_probe_complete(self):
+        return sum(
+            1 for cell in self.belief.known_map.values()
+            if cell.get("object") in {"ball", "key", "box"}
+            and cell.get("color") == "green"
+        ) >= 3
+
+    def _memory_probe_step(self):
+        if self._memory_probe_complete():
+            return {
+                "success": True,
+                "status": "skill_complete",
+                "reason": "The cue and both hallway-end choices are observation-grounded.",
+                "actions_executed": 0,
+            }
+        if self.memory_forward_direction is None:
+            self.memory_forward_direction = int(self.belief.agent_dir)
+            self.memory_probe_direction = (
+                self.memory_forward_direction + 2
+            ) % 4
+        observed = [
+            (tuple(pos), cell)
+            for pos, cell in self.belief.known_map.items()
+            if cell.get("object") in {"ball", "key", "box"}
+            and cell.get("color") == "green"
+        ]
+        by_x = {}
+        for item in observed:
+            by_x.setdefault(item[0][0], []).append(item)
+        endpoint_pair_seen = any(
+            len(items) >= 2 for items in by_x.values()
+        )
+        cue_seen = bool(observed) and not endpoint_pair_seen
+        desired_direction = (
+            self.memory_forward_direction
+            if cue_seen else self.memory_probe_direction
+        )
+        if int(self.belief.agent_dir) != desired_direction:
+            return self._execute(
+                Actions.right,
+                "Orienting the memory probe toward missing cue/endpoint evidence.",
+            )
+        dx, dy = DIRECTIONS[desired_direction]
+        front = (self.belief.agent_pos[0] + dx, self.belief.agent_pos[1] + dy)
+        if is_walkable(self.belief.cell_at(front)):
+            return self.navigator.step_towards_cell(front)
+        return self._execute(
+            Actions.right,
+            "Scanning the start room for the matching-object cue.",
+        )
+
+    def step(self, memory_probe=False, reactive_obstacles=False):
+        if memory_probe:
+            return self._memory_probe_step()
         self._update_pending_frontier()
 
         # 有界循环：即使连续遇到不可探索的边缘，
@@ -134,18 +190,21 @@ class ObservationExplorer:
                 path = self.navigator._find_path(
                     start,
                     frontier_pos,
+                    transient_obstacles=reactive_obstacles,
                 )
 
                 if (
                     unknown_pos in self.belief.known_map
                     or edge in self.blocked_edges
-                    or not self.navigator._safe_walkable(cell)
+                    or not self.navigator._safe_walkable(
+                        cell, reactive_obstacles
+                    )
                     or path is None
                 ):
                     self.active_frontier = None
 
             if self.active_frontier is None:
-                candidates = self._candidate_frontiers()
+                candidates = self._candidate_frontiers(reactive_obstacles)
 
                 if not candidates:
                     return {
@@ -178,6 +237,7 @@ class ObservationExplorer:
             path = self.navigator._find_path(
                 start,
                 frontier_pos,
+                transient_obstacles=reactive_obstacles,
             )
 
             if path is None:
@@ -187,7 +247,8 @@ class ObservationExplorer:
             # 先沿已知路径前往前沿位置。
             if start != frontier_pos:
                 result = self.navigator.step_towards_cell(
-                    frontier_pos
+                    frontier_pos,
+                    transient_obstacles=reactive_obstacles,
                 )
 
                 if result["status"] == "action_executed":

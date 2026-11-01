@@ -28,7 +28,7 @@ class ReachSkill(UnifiedSkill):
         self._active_target_key = None
         self._active_target_pos = None
 
-    def step(self, target, **kwargs):
+    def step(self, target, reactive_obstacles=False, **kwargs):
         spec = TargetSpec.from_value(target)
         if spec.key != self._active_target_key:
             self._active_target_key = spec.key
@@ -63,6 +63,7 @@ class ReachSkill(UnifiedSkill):
         result = self.navigator.step_towards_cell(
             target_pos,
             allow_goal=True,
+            transient_obstacles=bool(reactive_obstacles),
         )
         if tuple(self.belief.agent_pos) == target_pos:
             self.belief._mark_completed("reach")

@@ -108,6 +108,22 @@ class QwenSkillRelevanceScorer:
     @staticmethod
     def _target_progress(call, task, state):
         name = call.get("name", "")
+        args = call.get("args", {})
+        if args.get("memory_probe"):
+            return (
+                "required observation-grounding step: inspect the cue before "
+                "any hallway endpoint may be selected"
+            )
+        if args.get("grounded_reference"):
+            return (
+                "the matching reference has been uniquely resolved from the "
+                "observed cue and endpoint objects; this is the grounded target"
+            )
+        if args.get("reactive_obstacles"):
+            return (
+                "uses observation-by-observation collision avoidance for moving "
+                "obstacles while advancing toward the requested goal"
+            )
         done = set(state.get("completed_subgoals", []))
         if name == "PickUp" and ({"pick", "pickup"} & done):
             return "already completed or possibly redundant"

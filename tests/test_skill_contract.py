@@ -6,6 +6,7 @@ from skills.target import TargetSpec, parse_target_specs, relation_offset
 from skills.dependency import TaskDependencyResolver, make_call
 from llm.skill_relevance import KeywordRelevanceScorer
 from skills.feasibility import SkillFeasibilityEvaluator
+from skills.navigation import ObservationNavigator
 from perception.belief_state import BeliefState
 
 
@@ -91,6 +92,23 @@ class BeliefStateTests(unittest.TestCase):
         self.assertEqual(
             belief.known_map[belief.agent_pos]["object"], "empty"
         )
+
+    def test_visual_odometry_detects_a_blocked_forward_move(self):
+        image = np.zeros((7, 7, 3), dtype=np.uint8)
+        image[3, 4] = [OBJECT_TO_IDX["wall"], 0, 0]
+        belief = BeliefState()
+        belief.known_map = {
+            (1, 0): {"object": "empty"},
+            (2, 0): {"object": "wall"},
+            (3, 0): {"object": "empty"},
+        }
+        moved = belief._forward_motion_confirmed(
+            {"image": image, "direction": 0},
+            stayed_pos=(0, 0),
+            moved_pos=(1, 0),
+            direction=0,
+        )
+        self.assertFalse(moved)
 
 
 class DependencyTests(unittest.TestCase):
@@ -340,6 +358,37 @@ class DependencyTests(unittest.TestCase):
             for call in calls
         ))
 
+    def test_memory_task_withholds_endpoint_choice_until_cue_is_grounded(self):
+        class Belief:
+            known_map = {
+                (4, -2): {"object": "key", "color": "green", "state": "open"},
+                (4, 2): {"object": "ball", "color": "green", "state": "open"},
+            }
+
+        calls = TaskDependencyResolver().candidate_calls(
+            "go to the matching object at the end of the hallway", Belief()
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "Explore")
+        self.assertTrue(calls[0]["args"]["memory_probe"])
+
+    def test_memory_task_exposes_only_the_observation_grounded_endpoint(self):
+        class Belief:
+            known_map = {
+                (-3, -1): {"object": "key", "color": "green", "state": "open"},
+                (4, -2): {"object": "key", "color": "green", "state": "open"},
+                (4, 2): {"object": "ball", "color": "green", "state": "open"},
+            }
+
+        calls = TaskDependencyResolver().candidate_calls(
+            "go to the matching object at the end of the hallway", Belief()
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "NavigateTo")
+        self.assertEqual(calls[0]["args"]["target"]["object"], "key")
+        self.assertEqual(calls[0]["args"]["position"], [4, -2])
+        self.assertTrue(calls[0]["args"]["grounded_reference"])
+
     def test_place_near_candidate(self):
         calls = TaskDependencyResolver().candidate_calls("Pick up the red ball and place it above the green goal")
         place = [c for c in calls if c["name"] == "PlaceNear"]
@@ -548,6 +597,27 @@ class FeasibilityTests(unittest.TestCase):
             and item["args"]["target"]["object"] == "ball"
             for item in assessment["prerequisites"]
         ))
+
+    def test_reactive_navigation_waits_only_when_ball_occupies_next_cell(self):
+        class Belief:
+            observation_count = 5
+            known_map = {
+                (1, 0): {
+                    "object": "ball", "color": "blue", "state": "open",
+                    "last_seen": 5,
+                },
+                (1, 1): {
+                    "object": "ball", "color": "red", "state": "open",
+                    "last_seen": 5,
+                },
+            }
+
+        class Runtime:
+            belief = Belief()
+
+        navigator = ObservationNavigator(Runtime())
+        self.assertTrue(navigator._transient_collision_risk((1, 0)))
+        self.assertFalse(navigator._transient_collision_risk((0, 1)))
 
 
 class RelevanceTests(unittest.TestCase):

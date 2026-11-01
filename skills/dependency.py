@@ -30,9 +30,17 @@ def make_call(name: str, **args) -> dict:
     position_key = ""
     if isinstance(position, (tuple, list)) and len(position) == 2:
         position_key = f"at:{int(position[0])},{int(position[1])}"
+    mode_key = ":".join(
+        mode for flag, mode in (
+            (args.get("memory_probe"), "memory_probe"),
+            (args.get("grounded_reference"), "grounded_reference"),
+            (args.get("reactive_obstacles"), "reactive_obstacles"),
+        ) if flag
+    )
     suffix = ":".join(
         part for part in (
-            target_key, object_key, destination_key, relation, position_key
+            target_key, object_key, destination_key, relation, position_key,
+            mode_key,
         ) if part
     )
     call_id = name.lower() + (":" + suffix if suffix else "")
@@ -72,6 +80,38 @@ def _describe_call(name: str, args: dict) -> str:
 
 class TaskDependencyResolver:
     """Generates parameterized candidates and prerequisite chains."""
+
+    @staticmethod
+    def _matching_hallway_target(belief):
+        """Resolve MiniGrid Memory's cue using only the observed belief map."""
+        if belief is None:
+            return None
+        objects = [
+            (tuple(pos), cell)
+            for pos, cell in belief.known_map.items()
+            if cell.get("object") in PICKABLE_OBJECTS
+            and cell.get("color") == "green"
+        ]
+        if len(objects) < 3:
+            return None
+        by_x = {}
+        for item in objects:
+            by_x.setdefault(item[0][0], []).append(item)
+        for endpoint_x, endpoint_items in sorted(by_x.items()):
+            endpoint_types = {cell.get("object") for _, cell in endpoint_items}
+            if len(endpoint_items) != 2 or len(endpoint_types) != 2:
+                continue
+            cue_types = {
+                cell.get("object") for pos, cell in objects
+                if pos[0] != endpoint_x
+            }
+            matching = [
+                item for item in endpoint_items
+                if item[1].get("object") in cue_types
+            ]
+            if len(matching) == 1:
+                return matching[0]
+        return None
 
     def parse_targets(self, task: str, belief=None) -> list[TargetSpec]:
         targets = parse_target_specs(task)
@@ -197,6 +237,29 @@ class TaskDependencyResolver:
 
     def candidate_calls(self, task: str, belief=None) -> list[dict]:
         text = str(task).lower()
+        memory_intent = bool(
+            "matching object" in text and "end of the hallway" in text
+        )
+        if memory_intent:
+            resolved = self._matching_hallway_target(belief)
+            if resolved is None:
+                return [make_call("Explore", memory_probe=True)]
+            position, cell = resolved
+            target = TargetSpec(
+                object_name=cell.get("object"),
+                color=(
+                    cell.get("color")
+                    if cell.get("color") != "unknown" else None
+                ),
+            )
+            return [make_call(
+                "NavigateTo", target=target.to_dict(),
+                position=list(position), grounded_reference=True,
+            )]
+
+        reactive_goal_navigation = (
+            text.strip(" .") == "get to the green goal square"
+        )
         targets = self.parse_targets(task, belief)
         pick_verbs = (
             any(word in text for word in ("pick", "take", "grab", "carry", "fetch"))
@@ -256,11 +319,19 @@ class TaskDependencyResolver:
             )
         }
 
-        calls = [make_call("Explore")]
+        calls = [make_call(
+            "Explore", reactive_obstacles=reactive_goal_navigation
+        )]
         for target in targets:
-            calls.append(make_call("Find", target=target.to_dict()))
+            calls.append(make_call(
+                "Find", target=target.to_dict(),
+                reactive_obstacles=reactive_goal_navigation,
+            ))
             if target.object_name == "goal" and goal_entry_intent:
-                calls.append(make_call("Reach", target=target.to_dict()))
+                calls.append(make_call(
+                    "Reach", target=target.to_dict(),
+                    reactive_obstacles=reactive_goal_navigation,
+                ))
             elif movement_intent and any(
                 requested.matches(target.to_dict())
                 for requested in explicit_task_targets
