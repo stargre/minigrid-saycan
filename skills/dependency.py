@@ -14,6 +14,23 @@ from skills.target import (
 )
 
 
+_COLOR_PATTERN = r"red|blue|green|purple|yellow|grey|gray"
+_ORDERED_DOORS_PATTERN = re.compile(
+    rf"\bopen\s+(?:the\s+)?({_COLOR_PATTERN})\s+door\s+"
+    rf"(?:and\s+)?then\s+(?:open\s+)?(?:the\s+)?"
+    rf"({_COLOR_PATTERN})\s+door\b",
+    re.IGNORECASE,
+)
+
+
+def ordered_door_colors(task: str) -> list[str]:
+    """Return an explicitly ordered two-door sequence, if one is requested."""
+    match = _ORDERED_DOORS_PATTERN.search(str(task))
+    if not match:
+        return []
+    return [color.lower() for color in match.groups()]
+
+
 def make_call(name: str, **args) -> dict:
     target = args.get("target")
     target_key = TargetSpec.from_value(target).key if target is not None else ""
@@ -117,6 +134,20 @@ class TaskDependencyResolver:
         targets = parse_target_specs(task)
         text = str(task).lower()
 
+        # LockedRoom names the room containing the key rather than explicitly
+        # naming its entrance (for example, "from the grey room"). In the
+        # environment each room is identified by its single same-colour door,
+        # so ground that phrase as a door target that can be found and opened.
+        seen = {item.key for item in targets}
+        for match in re.finditer(
+            rf"\b(?:from|in)\s+(?:the\s+)?({_COLOR_PATTERN})\s+room\b",
+            text,
+        ):
+            room_door = TargetSpec("door", color=match.group(1).lower())
+            if room_door.key not in seen:
+                targets.append(room_door)
+                seen.add(room_door.key)
+
         # Official Fetch missions name exactly one color/type target, while
         # the observation may contain several distractor keys and balls.
         # Restrict Fetch candidate generation to the explicitly requested
@@ -129,6 +160,11 @@ class TaskDependencyResolver:
                 r"(?:key|ball)\b",
                 text,
             ))
+        ) and not any(
+            marker in text
+            for marker in (
+                "unlock", "open", " goal", " room", "place", "put", "drop",
+            )
         )
         # Official GoToObject missions ask the agent to approach a single
         # color/type target and issue Done; pickup is explicitly not part of
@@ -237,6 +273,18 @@ class TaskDependencyResolver:
 
     def candidate_calls(self, task: str, belief=None) -> list[dict]:
         text = str(task).lower()
+        ordered_doors = ordered_door_colors(task)
+        active_ordered_door = None
+        if ordered_doors:
+            active_ordered_door = ordered_doors[-1]
+            if belief is not None:
+                for color in ordered_doors:
+                    already_open = bool(
+                        belief.find_objects("door", color=color, state="open")
+                    )
+                    if not already_open:
+                        active_ordered_door = color
+                        break
         memory_intent = bool(
             "matching object" in text and "end of the hallway" in text
         )
@@ -371,7 +419,11 @@ class TaskDependencyResolver:
                     for door_pos, door_cell in known_doors:
                         state = door_cell.get("state")
                         position = list(door_pos)
-                        if state == "closed" and (
+                        ordered_door_is_active = bool(
+                            not ordered_doors
+                            or target.color == active_ordered_door
+                        )
+                        if state == "closed" and ordered_door_is_active and (
                             "open" in text or not door_navigation_intent
                         ):
                             calls.append(make_call(
@@ -387,7 +439,13 @@ class TaskDependencyResolver:
                                 "UnlockDoor", target=target.to_dict(),
                                 position=position,
                             ))
-                elif "open" in text or unlock_intent:
+                elif (
+                    ("open" in text or unlock_intent)
+                    and (
+                        not ordered_doors
+                        or target.color == active_ordered_door
+                    )
+                ):
                     calls.append(make_call("OpenDoor", target=target.to_dict()))
                     calls.append(make_call("UnlockDoor", target=target.to_dict()))
             if target.object_name == "box" and move_verbs:
