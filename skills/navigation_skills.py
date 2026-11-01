@@ -7,8 +7,8 @@ from skills.target import TargetSpec
 class NavigateToSkill(UnifiedSkill):
     name = "NavigateTo"
 
-    def step(self, target, **kwargs):
-        pos, cell = self._nearest(target)
+    def step(self, target, position=None, **kwargs):
+        pos, cell = self._at_position(target, position)
         if pos is None:
             return self._result(False, "target_not_found", "Find the target before navigating.")
         result = self.navigator.step_to_adjacent(pos)

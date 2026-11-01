@@ -39,3 +39,13 @@ class UnifiedSkill:
         if not items:
             return None, None
         return min(items, key=lambda item: _dist(item[0], self.belief.agent_pos))
+
+    def _at_position(self, target, position=None):
+        """Resolve a semantic target, optionally pinned to an observed cell."""
+        if position is None:
+            return self._nearest(target)
+        pos = tuple(int(value) for value in position)
+        cell = self.belief.cell_at(pos)
+        if not TargetSpec.from_value(target).matches(cell):
+            return None, None
+        return pos, cell

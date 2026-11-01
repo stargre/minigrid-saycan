@@ -26,7 +26,15 @@ def make_call(name: str, **args) -> dict:
         else ""
     )
     relation = str(args.get("relation", ""))
-    suffix = ":".join(part for part in (target_key, object_key, destination_key, relation) if part)
+    position = args.get("position")
+    position_key = ""
+    if isinstance(position, (tuple, list)) and len(position) == 2:
+        position_key = f"at:{int(position[0])},{int(position[1])}"
+    suffix = ":".join(
+        part for part in (
+            target_key, object_key, destination_key, relation, position_key
+        ) if part
+    )
     call_id = name.lower() + (":" + suffix if suffix else "")
     return {
         "id": call_id,
@@ -165,7 +173,21 @@ class TaskDependencyResolver:
             and belief.find_objects("door", state="locked")
         )
         if "unlock" in text or locked_door_known:
-            for door in doors or [TargetSpec("door")]:
+            locked_doors = []
+            if locked_door_known:
+                locked_doors = [
+                    TargetSpec(
+                        "door",
+                        color=(
+                            cell.get("color")
+                            if cell.get("color") != "unknown" else None
+                        ),
+                    )
+                    for _, cell in belief.find_objects("door", state="locked")
+                ]
+            # Observation evidence has priority: do not invent a key for every
+            # unrelated open/closed door just because one locked door exists.
+            for door in locked_doors or doors or [TargetSpec("door")]:
                 key = TargetSpec("key", color=door.color)
                 if key.key not in seen:
                     targets.append(key)
@@ -221,26 +243,82 @@ class TaskDependencyResolver:
             phrase in text
             for phrase in ("reach", "enter", "arrive at", "get to", "go to", "navigate to", "cross to")
         )
+        explicit_task_targets = parse_target_specs(task)
+        explicit_pickable_targets = [
+            item for item in explicit_task_targets
+            if item.object_name in PICKABLE_OBJECTS
+        ]
+        locked_key_colors = {
+            cell.get("color")
+            for _, cell in (
+                belief.find_objects("door", state="locked")
+                if belief is not None else []
+            )
+        }
 
         calls = [make_call("Explore")]
         for target in targets:
             calls.append(make_call("Find", target=target.to_dict()))
             if target.object_name == "goal" and goal_entry_intent:
                 calls.append(make_call("Reach", target=target.to_dict()))
-            elif movement_intent or target.object_name == "door":
+            elif movement_intent and any(
+                requested.matches(target.to_dict())
+                for requested in explicit_task_targets
+            ):
                 calls.append(make_call("NavigateTo", target=target.to_dict()))
+            explicitly_requested_pickup = bool(
+                pick_verbs
+                and any(
+                    requested.matches(target.to_dict())
+                    for requested in explicit_pickable_targets
+                )
+            )
+            required_unlock_key = bool(
+                unlock_intent
+                and target.object_name == "key"
+                and (
+                    not locked_key_colors
+                    or target.color in locked_key_colors
+                )
+            )
             if target.object_name in PICKABLE_OBJECTS and (
-                pick_verbs or (unlock_intent and target.object_name == "key")
+                explicitly_requested_pickup or required_unlock_key
             ):
                 calls.append(make_call("PickUp", target=target.to_dict()))
-            # Only expose door-manipulation candidates when the task asks
-            # for opening/unlocking, or observation evidence shows a locked door.
-            # A GoToDoor benchmark terminates on toggle, so opening its target is wrong.
-            if target.object_name == "door" and (
-                "open" in text or unlock_intent
-            ):
-                calls.append(make_call("OpenDoor", target=target.to_dict()))
-                calls.append(make_call("UnlockDoor", target=target.to_dict()))
+            # Closed doors are traversal affordances even when the mission does
+            # not literally say "open". Keep every observed door position in
+            # the call identity so opening one blue door does not suppress all
+            # other blue doors. GoToDoor is the exception: toggling its target
+            # ends the benchmark incorrectly, so that navigation-only task must
+            # still use Done instead of OpenDoor.
+            if target.object_name == "door":
+                known_doors = (
+                    self._known_positions(belief, target.to_dict())
+                    if belief is not None else []
+                )
+                if known_doors:
+                    for door_pos, door_cell in known_doors:
+                        state = door_cell.get("state")
+                        position = list(door_pos)
+                        if state == "closed" and (
+                            "open" in text or not door_navigation_intent
+                        ):
+                            calls.append(make_call(
+                                "OpenDoor", target=target.to_dict(),
+                                position=position,
+                            ))
+                        if state == "locked" and unlock_intent:
+                            calls.append(make_call(
+                                "OpenDoor", target=target.to_dict(),
+                                position=position,
+                            ))
+                            calls.append(make_call(
+                                "UnlockDoor", target=target.to_dict(),
+                                position=position,
+                            ))
+                elif "open" in text or unlock_intent:
+                    calls.append(make_call("OpenDoor", target=target.to_dict()))
+                    calls.append(make_call("UnlockDoor", target=target.to_dict()))
             if target.object_name == "box" and move_verbs:
                 destinations = [item for item in targets if item.key != target.key and item.object_name not in PICKABLE_OBJECTS]
                 if destinations:
@@ -252,6 +330,60 @@ class TaskDependencyResolver:
                             relation="near",
                         )
                     )
+
+        # Some official missions describe only the final object, while a
+        # movable ball/box physically blocks the door on the route to it.
+        # Promote that observed obstruction to an explicit SayCan candidate.
+        # Keys are excluded because acquiring them is usually the intended
+        # unlock prerequisite, not obstacle relocation.
+        if belief is not None:
+            explicit_targets = parse_target_specs(task)
+            barrier_doors = [
+                tuple(pos) for pos, cell in belief.known_map.items()
+                if cell.get("object") == "door"
+                and cell.get("state") in {"closed", "locked"}
+            ]
+            for obstacle_pos, cell in belief.known_map.items():
+                if cell.get("object") not in {"ball", "box"}:
+                    continue
+                if any(spec.matches(cell) for spec in explicit_targets):
+                    continue
+                pos = tuple(obstacle_pos)
+                if not any(
+                    abs(pos[0] - door[0]) + abs(pos[1] - door[1]) == 1
+                    for door in barrier_doors
+                ):
+                    continue
+                obstacle = TargetSpec(
+                    object_name=cell.get("object"),
+                    color=(
+                        cell.get("color")
+                        if cell.get("color") != "unknown" else None
+                    ),
+                )
+                calls.append(make_call(
+                    "MoveObstacle", target=obstacle.to_dict(),
+                    position=list(pos),
+                ))
+
+            # MiniGrid keeps a key in the agent's hand after the lock is
+            # opened. Once no locked door remains, relocate that spent key to
+            # a safe observed cell so an explicitly requested ball/box can be
+            # acquired. This is task-conditioned and never drops a key while
+            # it is still needed by an observed lock.
+            held = getattr(belief, "held_object", None)
+            if (
+                held
+                and held.get("object") == "key"
+                and pick_verbs
+                and explicit_pickable_targets
+                and not any(spec.matches(held) for spec in explicit_pickable_targets)
+                and not belief.find_objects("door", state="locked")
+            ):
+                calls.append(make_call(
+                    "MoveObstacle",
+                    target=TargetSpec.from_value(held).to_dict(),
+                ))
 
         if place_verbs:
             task_targets = parse_target_specs(task)
@@ -388,13 +520,19 @@ class TaskDependencyResolver:
         return list(unique.values())
 
     @staticmethod
-    def _known_positions(belief, target) -> list[tuple[tuple[int, int], dict]]:
+    def _known_positions(
+        belief, target, position=None
+    ) -> list[tuple[tuple[int, int], dict]]:
         spec = TargetSpec.from_value(target)
-        return [
+        positions = [
             (tuple(pos), cell)
             for pos, cell in belief.known_map.items()
             if spec.matches(cell)
         ]
+        if position is None:
+            return positions
+        requested = tuple(int(value) for value in position)
+        return [item for item in positions if item[0] == requested]
 
     @staticmethod
     def _held_matches(belief, target) -> bool:
@@ -408,12 +546,16 @@ class TaskDependencyResolver:
         name = call.get("name")
         args = call.get("args", {})
         target = args.get("target")
+        position = args.get("position")
         prerequisites = []
 
         def add(name_, **kwargs):
             prerequisites.append(make_call(name_, **kwargs))
 
-        positions = self._known_positions(belief, target) if target is not None else []
+        positions = (
+            self._known_positions(belief, target, position)
+            if target is not None else []
+        )
         if name in {"NavigateTo", "Reach", "PickUp", "OpenDoor", "UnlockDoor", "Done"} and target is not None and not positions:
             add("Find", target=target)
 
@@ -422,6 +564,35 @@ class TaskDependencyResolver:
                 return []
             if not positions:
                 add("Find", target=target)
+            target_spec = TargetSpec.from_value(target)
+            if target_spec.object_name == "key":
+                for door_pos, door_cell in belief.known_map.items():
+                    if door_cell.get("object") != "door" or door_cell.get("state") != "locked":
+                        continue
+                    if target_spec.color and door_cell.get("color") != target_spec.color:
+                        continue
+                    for obstacle_pos, obstacle_cell in belief.known_map.items():
+                        if obstacle_cell.get("object") not in {"ball", "box"}:
+                            continue
+                        if (
+                            abs(tuple(obstacle_pos)[0] - tuple(door_pos)[0])
+                            + abs(tuple(obstacle_pos)[1] - tuple(door_pos)[1])
+                            != 1
+                        ):
+                            continue
+                        obstacle = TargetSpec(
+                            object_name=obstacle_cell.get("object"),
+                            color=(
+                                obstacle_cell.get("color")
+                                if obstacle_cell.get("color") != "unknown"
+                                else None
+                            ),
+                        )
+                        add(
+                            "MoveObstacle",
+                            target=obstacle.to_dict(),
+                            position=list(obstacle_pos),
+                        )
 
         if name in {"OpenDoor", "UnlockDoor"} and target is not None:
             door_pos = positions[0][0] if positions else None
@@ -435,7 +606,7 @@ class TaskDependencyResolver:
                 dx = door_pos[0] - belief.agent_pos[0]
                 dy = door_pos[1] - belief.agent_pos[1]
                 if abs(dx) + abs(dy) != 1:
-                    add("NavigateTo", target=target)
+                    add("NavigateTo", target=target, position=position)
 
         if name == "PlaceNear":
             obj = args.get("object", "object")
@@ -456,10 +627,12 @@ class TaskDependencyResolver:
         if name == "MoveObstacle":
             obstacle = args.get("target")
             destination = args.get("destination")
-            if obstacle is not None and not self._known_positions(belief, obstacle):
+            if obstacle is not None and not self._known_positions(
+                belief, obstacle, position
+            ):
                 add("Find", target=obstacle)
             if obstacle is not None and not self._held_matches(belief, obstacle):
-                add("PickUp", target=obstacle)
+                add("PickUp", target=obstacle, position=position)
             if destination is not None and not self._known_positions(belief, destination):
                 add("Find", target=destination)
             if destination is not None:

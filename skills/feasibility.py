@@ -3,6 +3,7 @@ from skills.navigation import ObservationNavigator
 from skills.target import PICKABLE_OBJECTS, TargetSpec
 from skills.placement import select_placement
 from skills.dependency import TaskDependencyResolver, make_call
+from skills.manipulation_skills import select_clear_drop_cell
 from perception.belief_state import DIRECTIONS, is_walkable
 
 
@@ -13,9 +14,13 @@ class SkillFeasibilityEvaluator:
         self.navigator = ObservationNavigator(runtime)
         self.dependencies = dependency_resolver or TaskDependencyResolver()
 
-    def _positions(self, target):
+    def _positions(self, target, position=None):
         spec = TargetSpec.from_value(target)
-        return [(tuple(pos), cell) for pos, cell in self.belief.known_map.items() if spec.matches(cell)]
+        positions = [(tuple(pos), cell) for pos, cell in self.belief.known_map.items() if spec.matches(cell)]
+        if position is None:
+            return positions
+        requested = tuple(int(value) for value in position)
+        return [item for item in positions if item[0] == requested]
 
     def _has_frontier(self):
         for pos, cell in self.belief.known_map.items():
@@ -42,7 +47,8 @@ class SkillFeasibilityEvaluator:
     def evaluate(self, call):
         name, args = call.get("name", ""), call.get("args", {})
         target = args.get("target")
-        positions = self._positions(target) if target is not None else []
+        position = args.get("position")
+        positions = self._positions(target, position) if target is not None else []
         score, reason = 0.0, "Preconditions are not satisfied."
 
         if self.runtime.terminated or self.runtime.truncated:
@@ -78,14 +84,31 @@ class SkillFeasibilityEvaluator:
                 reason = "Find the target first."
         elif name == "NavigateTo":
             if positions:
-                pos = min((p for p, _ in positions), key=lambda p: abs(p[0]-self.belief.agent_pos[0])+abs(p[1]-self.belief.agent_pos[1]))
+                pos, target_cell = min(
+                    positions,
+                    key=lambda item: (
+                        abs(item[0][0] - self.belief.agent_pos[0])
+                        + abs(item[0][1] - self.belief.agent_pos[1])
+                    ),
+                )
                 dx = pos[0] - self.belief.agent_pos[0]
                 dy = pos[1] - self.belief.agent_pos[1]
                 already_positioned = bool(
                     abs(dx) + abs(dy) == 1
                     and (dx, dy) == DIRECTIONS[int(self.belief.agent_dir)]
                 )
-                if already_positioned:
+                target_spec = TargetSpec.from_value(target)
+                if (
+                    position is not None
+                    and target_spec.object_name == "door"
+                    and target_cell.get("state") == "open"
+                ):
+                    score = 0.0
+                    reason = (
+                        "This exact door is already open; continue exploration "
+                        "through it instead of navigating back to it."
+                    )
+                elif already_positioned:
                     score = 0.0
                     reason = "The agent is already adjacent to and facing the target."
                 else:
@@ -100,6 +123,22 @@ class SkillFeasibilityEvaluator:
                 spec = TargetSpec.from_value(target)
                 if spec.object_name not in PICKABLE_OBJECTS and spec.object_name != "object":
                     reason = "The target is not a supported pickable object."
+                elif spec.object_name == "key" and any(
+                    door.get("state") == "locked"
+                    and (not spec.color or door.get("color") == spec.color)
+                    and any(
+                        abs(tuple(obj_pos)[0] - tuple(door_pos)[0])
+                        + abs(tuple(obj_pos)[1] - tuple(door_pos)[1]) == 1
+                        and obj.get("object") in {"ball", "box"}
+                        for obj_pos, obj in self.belief.known_map.items()
+                    )
+                    for door_pos, door in self.belief.known_map.items()
+                    if door.get("object") == "door"
+                ):
+                    reason = (
+                        "Clear the movable object blocking the matching locked "
+                        "door before occupying the gripper with its key."
+                    )
                 else:
                     pos = min((p for p, _ in positions), key=lambda p: abs(p[0]-self.belief.agent_pos[0])+abs(p[1]-self.belief.agent_pos[1]))
                     score = float(self._reachable_adjacent(pos))
@@ -155,15 +194,33 @@ class SkillFeasibilityEvaluator:
                     )
         elif name == "MoveObstacle":
             obstacle, destination = args.get("target"), args.get("destination")
-            if not positions:
+            holding_obstacle = self._held_matches(obstacle)
+            if not positions and not holding_obstacle:
                 reason = "Find the obstacle first."
-            elif destination is None or not self._positions(destination):
-                reason = "Find the destination first."
             elif self.belief.inventory_status != "empty" and not self._held_matches(obstacle):
                 reason = "The gripper must be empty before moving an obstacle."
             else:
-                score = float(self._reachable_adjacent(positions[0][0]))
-                reason = "The obstacle is known and reachable." if score else "No known route to the obstacle."
+                source_pos = (
+                    positions[0][0]
+                    if positions else tuple(self.belief.agent_pos)
+                )
+                obstacle_reachable = bool(
+                    holding_obstacle or self._reachable_adjacent(source_pos)
+                )
+                if destination is None:
+                    clear_cell = select_clear_drop_cell(
+                        self.belief, self.navigator, source_pos
+                    )
+                    score = float(obstacle_reachable and clear_cell is not None)
+                    reason = (
+                        "The blocking object is reachable and has a safe observed drop cell."
+                        if score else "No safe observed relocation plan is currently available."
+                    )
+                elif not self._positions(destination):
+                    reason = "Find the destination first."
+                else:
+                    score = float(obstacle_reachable)
+                    reason = "The obstacle is known and reachable." if score else "No known route to the obstacle."
         elif name == "Done":
             if positions:
                 pos = positions[0][0]
