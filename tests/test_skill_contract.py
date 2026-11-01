@@ -400,6 +400,43 @@ class DependencyTests(unittest.TestCase):
             for call in calls
         ))
 
+    def test_unrelated_locked_door_does_not_keep_spent_key_in_gripper(self):
+        class Belief:
+            held_object = {"object": "key", "color": "blue", "state": "held"}
+            known_map = {
+                (0, -2): {"object": "door", "color": "blue", "state": "open"},
+                (2, 3): {"object": "door", "color": "red", "state": "locked"},
+                (-1, -5): {"object": "ball", "color": "blue", "state": "unknown"},
+            }
+
+            @staticmethod
+            def find_objects(object_name=None, color=None, state=None):
+                return [
+                    (pos, cell) for pos, cell in Belief.known_map.items()
+                    if (object_name is None or cell.get("object") == object_name)
+                    and (color is None or cell.get("color") == color)
+                    and (state is None or cell.get("state") == state)
+                ]
+
+        calls = TaskDependencyResolver().candidate_calls(
+            "pick up the blue ball", Belief()
+        )
+        self.assertTrue(any(
+            call["name"] == "MoveObstacle"
+            and call["args"]["target"].get("color") == "blue"
+            for call in calls
+        ))
+
+        Belief.known_map[(0, -2)]["state"] = "locked"
+        calls = TaskDependencyResolver().candidate_calls(
+            "pick up the blue ball", Belief()
+        )
+        self.assertFalse(any(
+            call["name"] == "MoveObstacle"
+            and call["args"]["target"].get("color") == "blue"
+            for call in calls
+        ))
+
     def test_memory_task_withholds_endpoint_choice_until_cue_is_grounded(self):
         class Belief:
             known_map = {
@@ -637,6 +674,38 @@ class FeasibilityTests(unittest.TestCase):
         self.assertTrue(any(
             item["name"] == "MoveObstacle"
             and item["args"]["target"]["object"] == "ball"
+            for item in assessment["prerequisites"]
+        ))
+
+    def test_key_pickup_relocates_a_different_key_blocking_its_lock(self):
+        class Belief:
+            inventory_status = "empty"
+            held_object = None
+            agent_pos = (0, 0)
+            agent_dir = 0
+            known_map = {
+                (0, 0): {"object": "empty", "color": "unknown", "state": "unknown"},
+                (1, 0): {"object": "key", "color": "blue", "state": "unknown"},
+                (1, 2): {"object": "key", "color": "purple", "state": "unknown"},
+                (1, 3): {"object": "door", "color": "blue", "state": "locked"},
+                (0, 1): {"object": "empty", "color": "unknown", "state": "unknown"},
+            }
+
+            def cell_at(self, position):
+                return self.known_map.get(tuple(position))
+
+        class Runtime:
+            belief = Belief()
+            terminated = False
+            truncated = False
+
+        assessment = SkillFeasibilityEvaluator(Runtime()).evaluate(
+            make_call("PickUp", target={"object": "key", "color": "blue"})
+        )
+        self.assertEqual(assessment["feasibility"], 0.0)
+        self.assertTrue(any(
+            item["name"] == "MoveObstacle"
+            and item["args"]["target"].get("color") == "purple"
             for item in assessment["prerequisites"]
         ))
 
