@@ -21,6 +21,32 @@ class FakeRuntime:
 
 
 class TaskCompletionTests(unittest.TestCase):
+    def test_ordered_doors_require_positive_environment_termination(self):
+        class DoorBelief:
+            known_map = {
+                (1, 1): {"object": "door", "color": "red", "state": "open"},
+                (4, 1): {"object": "door", "color": "blue", "state": "closed"},
+            }
+            inventory_status = "empty"
+            held_object = None
+            completed_subgoals = ["open_door"]
+
+        class DoorRuntime:
+            belief = DoorBelief()
+            terminated = False
+            truncated = False
+            last_reward = 0.0
+
+        planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
+        planner.runtime = DoorRuntime()
+        planner.history = [{"call": {"name": "OpenDoor"}}]
+        task = "open the red door then the blue door"
+        self.assertFalse(planner._task_success(task))
+
+        planner.runtime.terminated = True
+        planner.runtime.last_reward = 0.9
+        self.assertTrue(planner._task_success(task))
+
     def test_found_objects_remain_evidence_after_pickup_and_traversal(self):
         planner = UnifiedSayCanPlanner.__new__(UnifiedSayCanPlanner)
         planner.runtime = FakeRuntime()
