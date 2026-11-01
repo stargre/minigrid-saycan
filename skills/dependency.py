@@ -495,11 +495,11 @@ class TaskDependencyResolver:
                     position=list(pos),
                 ))
 
-            # MiniGrid keeps a key in the agent's hand after the lock is
-            # opened. Once no locked door remains, relocate that spent key to
-            # a safe observed cell so an explicitly requested ball/box can be
-            # acquired. This is task-conditioned and never drops a key while
-            # it is still needed by an observed lock.
+            # MiniGrid keeps a key in the agent's hand after its matching lock
+            # is opened. Relocate that spent key once no *same-colour* locked
+            # door remains, so an unrelated lock elsewhere in a multi-room
+            # maze does not keep the gripper occupied forever. A key is never
+            # dropped while an observed matching lock can still require it.
             held = getattr(belief, "held_object", None)
             if (
                 held
@@ -507,7 +507,9 @@ class TaskDependencyResolver:
                 and pick_verbs
                 and explicit_pickable_targets
                 and not any(spec.matches(held) for spec in explicit_pickable_targets)
-                and not belief.find_objects("door", state="locked")
+                and not belief.find_objects(
+                    "door", color=held.get("color"), state="locked"
+                )
             ):
                 calls.append(make_call(
                     "MoveObstacle",
@@ -701,7 +703,11 @@ class TaskDependencyResolver:
                     if target_spec.color and door_cell.get("color") != target_spec.color:
                         continue
                     for obstacle_pos, obstacle_cell in belief.known_map.items():
-                        if obstacle_cell.get("object") not in {"ball", "box"}:
+                        if obstacle_cell.get("object") not in {
+                            "ball", "box", "key"
+                        }:
+                            continue
+                        if target_spec.matches(obstacle_cell):
                             continue
                         if (
                             abs(tuple(obstacle_pos)[0] - tuple(door_pos)[0])
